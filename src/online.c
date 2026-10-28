@@ -1,0 +1,565 @@
+#include "online.h"
+#include "settings.h"
+#include "json.h"
+#include <winhttp.h>
+#include <stdio.h>
+#include <wchar.h>
+#include <objbase.h>
+#include <shellapi.h>
+#include <shlwapi.h>
+#define APP_ASSET L"NetPilotLite.exe"
+#define SETUP_ASSET L"NetPilotLite-Offline-Setup.exe"
+static const WCHAR *asset_name(BOOL setup) { return setup ? SETUP_ASSET : APP_ASSET; }
+static const WCHAR *signature_name(BOOL setup) { return setup ? SETUP_ASSET L".update" : APP_ASSET L".update"; }
+#define PAYLOAD_LIMIT (64ULL * 1024 * 1024)
+#ifdef NP_READONLY_BUILD
+NP_HTTP_FIXTURE np_http_fixture;
+static BOOL fixture_request(const WCHAR *url, BOOL asset, BYTE **memory, DWORD *length, HANDLE file,
+                            ULONGLONG limit, volatile LONG *cancel, NP_DOWNLOAD_PROGRESS progress, void *ctx,
+                            NP_ERROR *e) {
+    if (np_http_fixture.status != 200) {
+        np_error(e, np_http_fixture.status, 0, L"模拟 HTTP 失败（无网络请求）");
+        return FALSE;
+    }
+    if (cancel && InterlockedCompareExchange(cancel, 0, 0)) {
+        np_error(e, ERROR_CANCELLED, 0, L"模拟取消");
+        return FALSE;
+    }
+    if (!asset) {
+        size_t n = strlen(np_http_fixture.json);
+        *memory = malloc(n);
+        if (!*memory)
+            return FALSE;
+        memcpy(*memory, np_http_fixture.json, n);
+        *length = (DWORD)n;
+        return TRUE;
+    }
+    WCHAR path[NP_PATH];
+    swprintf_s(path, NP_PATH, L"%s%s", np_http_fixture.exe, wcsstr(url, L".exe.update") ? L".update" : L"");
+    HANDLE in = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (in == INVALID_HANDLE_VALUE)
+        return FALSE;
+    BYTE *all = malloc((size_t)limit);
+    DWORD got = 0;
+    BOOL ok = all && limit < MAXDWORD && ReadFile(in, all, (DWORD)limit, &got, NULL);
+    LARGE_INTEGER size;
+    ok = ok && GetFileSizeEx(in, &size) && (ULONGLONG)size.QuadPart <= limit;
+    CloseHandle(in);
+    if (ok && file != INVALID_HANDLE_VALUE) {
+        DWORD n = np_http_fixture.interrupt ? got / 2 : got, written;
+        ok = WriteFile(file, all, n, &written, NULL) && written == n;
+        if (progress)
+            progress(ctx, n, limit);
+        if (np_http_fixture.interrupt) {
+            np_error(e, ERROR_CONNECTION_ABORTED, 0, L"模拟下载中断");
+            ok = FALSE;
+        }
+    } else if (ok) {
+        *memory = all;
+        *length = got;
+        all = NULL;
+    }
+    free(all);
+    return ok;
+}
+#endif
+static BOOL online_base(WCHAR out[NP_PATH]) {
+#ifdef NP_READONLY_BUILD
+    if (np_http_fixture.active && np_http_fixture.directory[0]) {
+        wcscpy_s(out, NP_PATH, np_http_fixture.directory);
+        return TRUE;
+    }
+#endif
+    return np_data_directory(out, NP_PATH);
+}
+static BOOL component(const WCHAR *s) {
+    size_t n = wcslen(s);
+    if (!n || n >= 100 || !wcscmp(s, L".") || !wcscmp(s, L".."))
+        return FALSE;
+    for (size_t i = 0; i < n; ++i)
+        if (!((s[i] >= L'a' && s[i] <= L'z') || (s[i] >= L'A' && s[i] <= L'Z') ||
+              (s[i] >= L'0' && s[i] <= L'9') || s[i] == L'-' || s[i] == L'_' || s[i] == L'.'))
+            return FALSE;
+    return TRUE;
+}
+BOOL np_repo_valid(const WCHAR *owner, const WCHAR *repo) {
+    return owner && repo && component(owner) && component(repo);
+}
+BOOL np_semver(const WCHAR *s, DWORD out[4]) {
+    DWORD v[4] = {0};
+    if (*s == L'v')
+        ++s;
+    for (int i = 0; i < 3; ++i) {
+        if (*s < L'0' || *s > L'9')
+            return FALSE;
+        BOOL zero = *s == L'0';
+        int count = 0;
+        while (*s >= L'0' && *s <= L'9') {
+            DWORD d = (DWORD)(*s++ - L'0');
+            if (v[i] > (65535 - d) / 10)
+                return FALSE;
+            v[i] = v[i] * 10 + d;
+            ++count;
+        }
+        if (zero && count > 1)
+            return FALSE;
+        if (i < 2) {
+            if (*s++ != L'.')
+                return FALSE;
+        } else if (*s)
+            return FALSE;
+    }
+    memcpy(out, v, sizeof(v));
+    return TRUE;
+}
+int np_version_compare(const DWORD a[4], const DWORD b[4]) {
+    for (int i = 0; i < 4; ++i)
+        if (a[i] != b[i])
+            return a[i] > b[i] ? 1 : -1;
+    return 0;
+}
+BOOL np_asset_url(const WCHAR *url, const NP_UPDATE_SETTINGS *s, const WCHAR *tag, const WCHAR *name) {
+    WCHAR expected[2048];
+    DWORD v[4];
+    if (!np_repo_valid(s->owner, s->repo) || !np_semver(tag, v))
+        return FALSE;
+    if (wcscmp(name, APP_ASSET) && wcscmp(name, APP_ASSET L".update") &&
+        wcscmp(name, SETUP_ASSET) && wcscmp(name, SETUP_ASSET L".update"))
+        return FALSE;
+    return swprintf_s(expected, 2048, L"https://github.com/%s/%s/releases/download/%s/%s", s->owner, s->repo,
+                      tag, name) > 0 &&
+           !wcscmp(url, expected);
+}
+BOOL np_redirect_url(const WCHAR *url) {
+    WCHAR host[256];
+    URL_COMPONENTS u = {sizeof(u)};
+    u.lpszHostName = host;
+    u.dwHostNameLength = 256;
+    u.dwUserNameLength = u.dwPasswordLength = (DWORD)-1;
+    if (!url || wcslen(url) >= 4096 || wcschr(url, L'\\') || wcschr(url, L'#') ||
+        !WinHttpCrackUrl(url, 0, 0, &u) || u.nScheme != INTERNET_SCHEME_HTTPS || u.nPort != 443 ||
+        u.dwUserNameLength || u.dwPasswordLength)
+        return FALSE;
+    return !_wcsicmp(host, L"release-assets.githubusercontent.com") ||
+           !_wcsicmp(host, L"objects.githubusercontent.com");
+}
+static BOOL strfield(const NP_JSON *j, int obj, const char *key, WCHAR *out, size_t cap) {
+    return np_json_string(j, np_json_field(j, obj, key), out, cap);
+}
+BOOL np_release_json(const char *text, size_t n, const NP_UPDATE_SETTINGS *s, NP_ONLINE_RELEASE *out,
+                     NP_ERROR *e) {
+    NP_JSON j;
+    ZeroMemory(out, sizeof(*out));
+    out->installer = s->installer;
+    if (!np_repo_valid(s->owner, s->repo) || wcscmp(s->channel, L"Stable") || !np_json_parse(&j, text, n))
+        goto invalid;
+    BOOL ok = j.tokens[0].type == '{' && np_json_false(&j, np_json_field(&j, 0, "draft")) &&
+              np_json_false(&j, np_json_field(&j, 0, "prerelease")) &&
+              strfield(&j, 0, "tag_name", out->tag, 64) && np_semver(out->tag, out->version) &&
+              strfield(&j, 0, "name", out->name, 256) && strfield(&j, 0, "published_at", out->published, 64);
+    int body = np_json_field(&j, 0, "body");
+    if (body >= 0 && j.tokens[body].type == '"')
+        ok = ok && np_json_string(&j, body, out->body, 16384);
+    else if (body == -2)
+        ok = FALSE;
+    int assets = np_json_field(&j, 0, "assets"), exe = 0, sig = 0;
+    if (assets < 0 || j.tokens[assets].type != '[')
+        ok = FALSE;
+    if (ok)
+        for (int i = assets + 1; i < j.tokens[assets].next; i = j.tokens[i].next) {
+            WCHAR name[256], url[2048];
+            ULONGLONG size = 0;
+            if (!strfield(&j, i, "name", name, 256))
+                continue;
+            if (wcscmp(name, asset_name(s->installer)) && wcscmp(name, signature_name(s->installer)))
+                continue;
+            if (!strfield(&j, i, "browser_download_url", url, 2048) ||
+                !np_asset_url(url, s, out->tag, name) ||
+                !np_json_uint(&j, np_json_field(&j, i, "size"), &size)) {
+                ok = FALSE;
+                break;
+            }
+            if (!wcscmp(name, asset_name(s->installer))) {
+                ++exe;
+                wcscpy_s(out->url, 2048, url);
+                out->size = size;
+                if (!size || size > PAYLOAD_LIMIT)
+                    ok = FALSE;
+                int d = np_json_field(&j, i, "digest");
+                if (d == -2)
+                    ok = FALSE;
+                else if (d >= 0 && j.tokens[d].type == '"') {
+                    if (!np_json_string(&j, d, out->digest, 80) || wcslen(out->digest) != 71 ||
+                        wcsncmp(out->digest, L"sha256:", 7))
+                        ok = FALSE;
+                    else
+                        for (int k = 7; k < 71; ++k)
+                            if (!((out->digest[k] >= L'0' && out->digest[k] <= L'9') ||
+                                  (out->digest[k] >= L'a' && out->digest[k] <= L'f')))
+                                ok = FALSE;
+                }
+            } else {
+                ++sig;
+                wcscpy_s(out->signature_url, 2048, url);
+                if (size != sizeof(NP_RELEASE))
+                    ok = FALSE;
+            }
+        }
+    np_json_free(&j);
+    if (ok && exe == 1 && sig == 1)
+        return TRUE;
+invalid:
+    np_error(
+        e, ERROR_INVALID_DATA, 0,
+        L"Release 元数据无效：需要 Stable 语义版本、唯一 x64 EXE 及签名清单，且下载地址必须属于配置仓库");
+    return FALSE;
+}
+/* Each request is synchronous on a worker. Redirects are explicitly limited to GitHub's asset CDN. */
+static BOOL request(const WCHAR *initial, BOOL asset, BYTE **memory, DWORD *length, HANDLE file,
+                    ULONGLONG limit, volatile LONG *cancel, NP_DOWNLOAD_PROGRESS progress, void *context,
+                    NP_ERROR *e) {
+#ifdef NP_READONLY_BUILD
+    if (np_http_fixture.active)
+        return fixture_request(initial, asset, memory, length, file, limit, cancel, progress, context, e);
+#endif
+    HINTERNET session = NULL, connection = NULL, req = NULL;
+    BOOL ok = FALSE;
+    DWORD error = ERROR_GEN_FAILURE;
+    WCHAR url[4096];
+    wcscpy_s(url, 4096, initial);
+    BYTE *bytes = NULL;
+    DWORD used = 0, capacity = 0;
+    ULONGLONG total = 0;
+    ULONGLONG deadline = GetTickCount64() + 240000;
+    session = WinHttpOpen(L"NetPilotLite/" NP_VERSION, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
+                          WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!session)
+        goto done;
+    WinHttpSetTimeouts(session, 5000, 10000, 15000, 20000);
+    for (int redirects = 0; redirects <= 5; ++redirects) {
+        WCHAR host[256], path[4096];
+        URL_COMPONENTS u = {sizeof(u)};
+        u.lpszHostName = host;
+        u.dwHostNameLength = 256;
+        u.lpszUrlPath = path;
+        u.dwUrlPathLength = 4096;
+        u.dwExtraInfoLength = (DWORD)-1;
+        if (cancel && InterlockedCompareExchange(cancel, 0, 0)) {
+            error = ERROR_CANCELLED;
+            goto done;
+        }
+        if (!WinHttpCrackUrl(url, 0, 0, &u) || u.nScheme != INTERNET_SCHEME_HTTPS || u.nPort != 443) {
+            error = ERROR_INVALID_NAME;
+            goto done;
+        }
+        if (u.dwExtraInfoLength && wcscat_s(path, 4096, u.lpszExtraInfo)) {
+            error = ERROR_INVALID_NAME;
+            goto done;
+        }
+        connection = WinHttpConnect(session, host, 443, 0);
+        if (!connection)
+            goto done;
+        req = WinHttpOpenRequest(connection, L"GET", path, NULL, WINHTTP_NO_REFERER,
+                                 WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+        if (!req)
+            goto done;
+        DWORD disabled = WINHTTP_DISABLE_REDIRECTS, autologon = WINHTTP_AUTOLOGON_SECURITY_LEVEL_HIGH;
+        if (!WinHttpSetOption(req, WINHTTP_OPTION_DISABLE_FEATURE, &disabled, sizeof(disabled)) ||
+            !WinHttpSetOption(req, WINHTTP_OPTION_AUTOLOGON_POLICY, &autologon, sizeof(autologon)))
+            goto done;
+        const WCHAR *headers = L"Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\n";
+        if (!WinHttpSendRequest(req, asset ? WINHTTP_NO_ADDITIONAL_HEADERS : headers, asset ? 0 : (DWORD)-1,
+                                WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
+            !WinHttpReceiveResponse(req, NULL))
+            goto done;
+        DWORD status = 0, n = sizeof(status);
+        if (!WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, NULL, &status,
+                                 &n, NULL))
+            goto done;
+        if (status >= 300 && status < 400) {
+            WCHAR location[4096];
+            n = sizeof(location);
+            if (!asset || redirects == 5 ||
+                !WinHttpQueryHeaders(req, WINHTTP_QUERY_LOCATION, NULL, location, &n, NULL) ||
+                !np_redirect_url(location)) {
+                error = ERROR_ACCESS_DENIED;
+                np_error(e, error, 0, L"已阻止未经允许的更新重定向");
+                goto done;
+            }
+            wcscpy_s(url, 4096, location);
+            WinHttpCloseHandle(req);
+            req = NULL;
+            WinHttpCloseHandle(connection);
+            connection = NULL;
+            continue;
+        }
+        if (status != 200) {
+            WCHAR reason[220];
+            if (status == 404)
+                wcscpy_s(reason, 220,
+                         L"GitHub 返回 404：仓库为私有、无权访问，或尚未发布稳定版；这不代表当前已是最新版");
+            else if (status == 403 || status == 429) {
+                WCHAR reset[80] = L"", retry[80] = L"";
+                n = sizeof(reset);
+                WinHttpQueryHeaders(req, WINHTTP_QUERY_CUSTOM, L"X-RateLimit-Reset", reset, &n, NULL);
+                n = sizeof(retry);
+                WinHttpQueryHeaders(req, WINHTTP_QUERY_CUSTOM, L"Retry-After", retry, &n, NULL);
+                swprintf_s(reason, 220,
+                           L"GitHub 限流或访问被拒绝（HTTP %lu）；Retry-After=%s，Reset=%s。请稍后重试",
+                           status, retry, reset);
+            } else if (status == 407)
+                wcscpy_s(reason, 220, L"代理要求身份验证；请检查 Windows 代理配置，程序不会修改它");
+            else
+                swprintf_s(reason, 220, L"更新请求失败（HTTP %lu）", status);
+            error = ERROR_WINHTTP_INVALID_SERVER_RESPONSE;
+            np_error(e, error, 0, reason);
+            goto done;
+        }
+        for (;;) {
+            BYTE chunk[32768];
+            DWORD got = 0;
+            if (GetTickCount64() > deadline) {
+                error = ERROR_TIMEOUT;
+                goto done;
+            }
+            if (cancel && InterlockedCompareExchange(cancel, 0, 0)) {
+                error = ERROR_CANCELLED;
+                goto done;
+            }
+            if (!WinHttpReadData(req, chunk, sizeof(chunk), &got))
+                goto done;
+            if (!got)
+                break;
+            if (total + got > limit) {
+                error = ERROR_FILE_TOO_LARGE;
+                goto done;
+            }
+            if (file != INVALID_HANDLE_VALUE) {
+                DWORD written;
+                if (!WriteFile(file, chunk, got, &written, NULL) || written != got)
+                    goto done;
+            } else {
+                if (used + got > capacity) {
+                    DWORD next = used + got + 32768;
+                    BYTE *p = realloc(bytes, next);
+                    if (!p) {
+                        error = ERROR_NOT_ENOUGH_MEMORY;
+                        goto done;
+                    }
+                    bytes = p;
+                    capacity = next;
+                }
+                memcpy(bytes + used, chunk, got);
+                used += got;
+            }
+            total += got;
+            if (progress)
+                progress(context, total, limit);
+        }
+        ok = TRUE;
+        break;
+    }
+done:
+    if (!ok && !e->win32) {
+        DWORD last = GetLastError();
+        np_error(e,
+                 error != ERROR_GEN_FAILURE ? error
+                 : last                     ? last
+                                            : error,
+                 0,
+                 error == ERROR_CANCELLED ? L"更新已取消"
+                                          : L"HTTPS 更新失败；请检查网络、证书、代理或下载大小限制");
+    }
+    if (req)
+        WinHttpCloseHandle(req);
+    if (connection)
+        WinHttpCloseHandle(connection);
+    if (session)
+        WinHttpCloseHandle(session);
+    if (ok && memory) {
+        *memory = bytes;
+        *length = used;
+    } else
+        free(bytes);
+    return ok;
+}
+BOOL np_online_check(const NP_UPDATE_SETTINGS *s, NP_ONLINE_RELEASE *r, volatile LONG *cancel, NP_ERROR *e) {
+    ZeroMemory(e, sizeof(*e));
+    if (!np_repo_valid(s->owner, s->repo) || wcscmp(s->channel, L"Stable")) {
+        np_error(e, ERROR_INVALID_PARAMETER, 0, L"请填写有效 GitHub Owner / Repository；当前仅支持 Stable");
+        return FALSE;
+    }
+    WCHAR url[512];
+    swprintf_s(url, 512, L"https://api.github.com/repos/%s/%s/releases/latest", s->owner, s->repo);
+    BYTE *bytes = NULL;
+    DWORD n = 0;
+    if (!request(url, FALSE, &bytes, &n, INVALID_HANDLE_VALUE, 1024 * 1024, cancel, NULL, NULL, e))
+        return FALSE;
+    BOOL ok = np_release_json((char *)bytes, n, s, r, e);
+    free(bytes);
+    return ok;
+}
+BOOL np_online_verify(const WCHAR *path, const NP_ONLINE_RELEASE *r, NP_ERROR *e) {
+    NP_RELEASE signed_release;
+    DWORD current[4] = {NP_VERSION_NUM};
+    if (!(r->installer ? np_verify_installer(path, &signed_release, e) : np_verify_release(path, &signed_release, e)))
+        return FALSE;
+    if (memcmp(signed_release.version, r->version, sizeof(r->version)) || signed_release.size != r->size ||
+        np_version_compare(signed_release.version, current) < (r->installer ? 0 : 1)) {
+        np_error(e, ERROR_REVISION_MISMATCH, 0, L"签名版本与 Release 不一致，或不是更高版本；拒绝升级");
+        return FALSE;
+    }
+    if (r->digest[0]) {
+        WCHAR digest[80] = L"sha256:";
+        for (int i = 0; i < 32; ++i)
+            swprintf_s(digest + 7 + i * 2, 80 - 7 - i * 2, L"%02x", signed_release.hash[i]);
+        if (wcscmp(digest, r->digest)) {
+            np_error(e, ERROR_CRC, 0, L"GitHub digest 与签名 SHA-256 不一致");
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+void np_online_cleanup(const WCHAR *path) {
+    /* Only the generated cache shape is eligible. Never recursive, never a caller-supplied arbitrary target.
+     */
+    WCHAR base[NP_PATH], prefix[NP_PATH], side[NP_PATH], dir[NP_PATH];
+    if (!online_base(base))
+        return;
+    swprintf_s(prefix, NP_PATH, L"%s\\UpdateCache-{", base);
+    size_t n = wcslen(prefix);
+    const WCHAR *filename = wcsrchr(path, L'\\');
+    if (!filename || (wcscmp(filename + 1, APP_ASSET) && wcscmp(filename + 1, SETUP_ASSET)) ||
+        wcsncmp(path, prefix, n) || wcslen(path) != n + 37 + wcslen(filename) || path[n + 36] != L'}')
+        return;
+    WCHAR guidtext[40];
+    wcsncpy_s(guidtext, 40, path + n - 1, 38);
+    GUID id;
+    if (FAILED(CLSIDFromString(guidtext, &id)))
+        return;
+    wcscpy_s(dir, NP_PATH, path);
+    WCHAR *slash = wcsrchr(dir, L'\\');
+    *slash = 0;
+    DWORD attr = GetFileAttributesW(dir);
+    if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_REPARSE_POINT))
+        return;
+    swprintf_s(side, NP_PATH, L"%s.update", path);
+    DeleteFileW(side);
+    DeleteFileW(path);
+    RemoveDirectoryW(dir);
+}
+BOOL np_online_download(const NP_ONLINE_RELEASE *r, const NP_UPDATE_SETTINGS *s, WCHAR out[NP_PATH],
+                        volatile LONG *cancel, NP_DOWNLOAD_PROGRESS progress, void *context, NP_ERROR *e) {
+    ZeroMemory(e, sizeof(*e));
+    out[0] = 0;
+    DWORD current[4] = {NP_VERSION_NUM};
+    if (!np_asset_url(r->url, s, r->tag, asset_name(r->installer)) ||
+        !np_asset_url(r->signature_url, s, r->tag, signature_name(r->installer)) || !r->size ||
+        r->size > PAYLOAD_LIMIT || np_version_compare(r->version, current) < (r->installer ? 0 : 1)) {
+        np_error(e, ERROR_INVALID_DATA, 0, L"更新来源、版本或大小不符合要求");
+        return FALSE;
+    }
+    WCHAR base[NP_PATH], folder[NP_PATH], id[40], side[NP_PATH];
+    GUID guid;
+    if (!online_base(base) || FAILED(CoCreateGuid(&guid)) || !StringFromGUID2(&guid, id, 40))
+        goto fail;
+    DWORD attr = GetFileAttributesW(base);
+    if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_REPARSE_POINT)) {
+        SetLastError(ERROR_ACCESS_DENIED);
+        goto fail;
+    }
+    if (swprintf_s(folder, NP_PATH, L"%s\\UpdateCache-%s", base, id) < 0 || !CreateDirectoryW(folder, NULL))
+        goto fail;
+    swprintf_s(out, NP_PATH, L"%s\\%s", folder, asset_name(r->installer));
+    swprintf_s(side, NP_PATH, L"%s.update", out);
+    BYTE *manifest = NULL;
+    DWORD bytes = 0;
+    if (!request(r->signature_url, TRUE, &manifest, &bytes, INVALID_HANDLE_VALUE, sizeof(NP_RELEASE), cancel,
+                 NULL, NULL, e))
+        goto fail;
+    BOOL valid = bytes == sizeof(NP_RELEASE) && (r->installer ? np_installer_signature((NP_RELEASE *)manifest) : np_release_signature((NP_RELEASE *)manifest)) &&
+                 !memcmp(((NP_RELEASE *)manifest)->version, r->version, sizeof(r->version)) &&
+                 ((NP_RELEASE *)manifest)->size == r->size;
+    if (!valid) {
+        free(manifest);
+        np_error(e, NP_SIGNATURE_ERROR, 0, L"发布清单签名、版本或大小不匹配；已阻止下载执行");
+        goto fail;
+    }
+    HANDLE sf = CreateFileW(side, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_NEW,
+                            FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    DWORD written = 0;
+    valid = sf != INVALID_HANDLE_VALUE && WriteFile(sf, manifest, bytes, &written, NULL) &&
+            written == bytes && FlushFileBuffers(sf);
+    free(manifest);
+    if (sf != INVALID_HANDLE_VALUE)
+        CloseHandle(sf);
+    if (!valid)
+        goto fail;
+    HANDLE file = CreateFileW(out, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_NEW,
+                              FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    if (file == INVALID_HANDLE_VALUE)
+        goto fail;
+    BOOL ok = request(r->url, TRUE, NULL, NULL, file, r->size, cancel, progress, context, e);
+    if (ok)
+        ok = FlushFileBuffers(file);
+    CloseHandle(file);
+    if (ok)
+        ok = np_online_verify(out, r, e);
+    if (ok)
+        return TRUE;
+fail:
+    if (!e->win32)
+        np_error(e, GetLastError() ? GetLastError() : ERROR_WRITE_FAULT, 0, L"更新下载或缓存写入失败");
+    if (out[0])
+        np_online_cleanup(out);
+    out[0] = 0;
+    return FALSE;
+}
+
+/* Installation identity is a fixed Inno record plus the canonical running location, not a filename guess. */
+BOOL np_installed_directory(WCHAR out[NP_PATH]) {
+    HKEY key;
+    out[0] = 0;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, NP_INSTALL_KEY, 0, KEY_QUERY_VALUE | KEY_WOW64_64KEY, &key))
+        return FALSE;
+    DWORD n = NP_PATH * sizeof(WCHAR), type = 0;
+    LONG result = RegQueryValueExW(key, L"Inno Setup: App Path", NULL, &type, (BYTE *)out, &n);
+    RegCloseKey(key);
+    if (result || type != REG_SZ || n < 4 || n >= NP_PATH * sizeof(WCHAR) || out[n / 2 - 1]) {
+        out[0] = 0;
+        return FALSE;
+    }
+    return TRUE;
+}
+BOOL np_current_installed(void) {
+    WCHAR dir[NP_PATH], expected[NP_PATH], current[NP_PATH];
+    return np_installed_directory(dir) && swprintf_s(expected, NP_PATH, L"%s\\NetPilotLite.exe", dir) > 0 &&
+           GetModuleFileNameW(NULL, current, NP_PATH) && !_wcsicmp(expected, current);
+}
+BOOL np_installer_launch(const WCHAR *path, HANDLE *process, NP_ERROR *e) {
+    /* Read lock spans verification and process creation, including the UAC prompt. No supplied arguments. */
+    NP_RELEASE release;
+    HANDLE lock = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+                              FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    BOOL ok = lock != INVALID_HANDLE_VALUE && np_verify_installer(path, &release, e);
+    DWORD current[4] = {NP_VERSION_NUM};
+    if (ok && np_version_compare(release.version, current) < 0) {
+        np_error(e, ERROR_REVISION_MISMATCH, 0, L"Installer downgrade refused");
+        ok = FALSE;
+    }
+    SHELLEXECUTEINFOW sei = {sizeof(sei)};
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
+    sei.lpVerb = L"runas";
+    sei.lpFile = path;
+    sei.nShow = SW_SHOWNORMAL;
+    if (ok) {
+        ok = ShellExecuteExW(&sei);
+        if (!ok) np_error(e, GetLastError(), 0, L"Start trusted Offline Setup / UAC cancelled");
+    }
+    if (lock != INVALID_HANDLE_VALUE) CloseHandle(lock);
+    if (ok) {
+        if (process) *process = sei.hProcess;
+        else CloseHandle(sei.hProcess);
+    } else if (!e->win32) np_error(e, GetLastError(), 0, L"Lock installer for verification");
+    return ok;
+}

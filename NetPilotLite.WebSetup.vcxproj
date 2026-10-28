@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<ItemGroup Label="ProjectConfigurations"><ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration><ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration></ItemGroup>
+<PropertyGroup Label="Globals"><VCProjectVersion>17.0</VCProjectVersion><ProjectGuid>{8EA1B03A-9D31-4AF7-814F-158CE732BF79}</ProjectGuid><Keyword>Win32Proj</Keyword><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
+<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>
+<PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset><CharacterSet>Unicode</CharacterSet><UseDebugLibraries>false</UseDebugLibraries></PropertyGroup>
+<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/><Import Project="Common.props"/>
+<PropertyGroup><TargetName>NetPilotLite-Web-Setup</TargetName></PropertyGroup>
+<ItemDefinitionGroup><ResourceCompile><AdditionalIncludeDirectories>$(ProjectDir)installer\web;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ResourceCompile><Link><SubSystem>Windows</SubSystem></Link></ItemDefinitionGroup>
+<ItemGroup><ClCompile Include="installer\web\main.c"/><ClCompile Include="installer\web\cache.c"/><ClCompile Include="src\online.c"/><ClCompile Include="src\json.c"/><ClCompile Include="src\trust.c"/><ClCompile Include="src\core.c"/><ResourceCompile Include="installer\web\web.rc"/></ItemGroup>
+<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
+</Project>

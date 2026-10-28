@@ -1,0 +1,38 @@
+name: Windows x64 build and read-only tests
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build C17 Release with static CRT
+        shell: cmd
+        run: build.cmd
+      - name: Pure protocol, application and configuration tests
+        shell: pwsh
+        run: |
+          & .\bin\Release\NetPilotLite.Tests.exe --feature-tests
+          if ($LASTEXITCODE -ne 0) { throw 'Feature tests failed' }
+          & .\bin\Release\NetPilotLite.Tests.exe --routing-tests
+          if ($LASTEXITCODE -ne 0) { throw 'Routing tests failed' }
+      - name: Package unsigned build with SHA-256
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path ci-output -Force | Out-Null
+          Copy-Item -LiteralPath bin/Release/NetPilotLite.exe -Destination ci-output/NetPilotLite.exe
+          $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath ci-output/NetPilotLite.exe).Hash.ToLowerInvariant()
+          "$digest  NetPilotLite.exe" | Set-Content -Encoding ascii ci-output/SHA256SUMS.txt
+          'UNSIGNED build for review. Not accepted by the application updater.' | Set-Content ci-output/UNSIGNED.txt
+          Compress-Archive -Path ci-output/* -DestinationPath NetPilotLite-unsigned-win-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NetPilotLite-unsigned-win-x64
+          path: NetPilotLite-unsigned-win-x64.zip
+          if-no-files-found: error

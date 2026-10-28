@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- Optional official SDK extracted in this workspace; normal VS machines use the installed SDK. -->
+  <Import Project="..\work\native-sdk\sdk\build\Microsoft.Windows.SDK.cpp.props" Condition="Exists('..\work\native-sdk\sdk\build\Microsoft.Windows.SDK.cpp.props')" />
+  <Import Project="..\work\native-sdk\x64\build\native\Microsoft.Windows.SDK.cpp.x64.props" Condition="Exists('..\work\native-sdk\x64\build\native\Microsoft.Windows.SDK.cpp.x64.props')" />
+  <PropertyGroup>
+    <OutDir>$(MSBuildThisFileDirectory)bin\$(Configuration)\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)obj\$(ProjectName)\$(Configuration)\</IntDir>
+    <IncludePath Condition="Exists('..\work\native-sdk\sdk\c\Include\10.0.26100.0')">$(MSBuildThisFileDirectory)..\work\native-sdk\sdk\c\Include\10.0.26100.0\ucrt;$(MSBuildThisFileDirectory)..\work\native-sdk\sdk\c\Include\10.0.26100.0\shared;$(MSBuildThisFileDirectory)..\work\native-sdk\sdk\c\Include\10.0.26100.0\um;$(IncludePath)</IncludePath>
+    <LibraryPath Condition="Exists('..\work\native-sdk\x64\c\um\x64')">$(MSBuildThisFileDirectory)..\work\native-sdk\x64\c\um\x64;$(MSBuildThisFileDirectory)..\work\native-sdk\x64\c\ucrt\x64;$(LibraryPath)</LibraryPath>
+    <ExecutablePath Condition="Exists('..\work\native-sdk\sdk\c\bin\10.0.26100.0\x64')">$(MSBuildThisFileDirectory)..\work\native-sdk\sdk\c\bin\10.0.26100.0\x64;$(ExecutablePath)</ExecutablePath>
+    <GenerateManifest>false</GenerateManifest>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel><CompileAs>CompileAsC</CompileAs><LanguageStandard_C>stdc17</LanguageStandard_C>
+      <AdditionalOptions>/utf-8 /guard:cf %(AdditionalOptions)</AdditionalOptions>
+      <PreprocessorDefinitions>_WIN32_WINNT=0x0A00;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary><BufferSecurityCheck>true</BufferSecurityCheck>
+      <Optimization Condition="'$(Configuration)'=='Release'">MaxSpeed</Optimization>
+      <Optimization Condition="'$(Configuration)'=='Debug'">Disabled</Optimization>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <ResourceCompile><AdditionalIncludeDirectories>$(ProjectDir)src;$(ProjectDir)tests;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ResourceCompile>
+    <Link>
+      <AdditionalDependencies>user32.lib;gdi32.lib;shell32.lib;advapi32.lib;setupapi.lib;cfgmgr32.lib;iphlpapi.lib;wtsapi32.lib;ole32.lib;comctl32.lib;dwmapi.lib;uxtheme.lib;windowscodecs.lib;uuid.lib;msimg32.lib;wlanapi.lib;ws2_32.lib;comdlg32.lib;version.lib;bcrypt.lib;shlwapi.lib;propsys.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <GenerateManifest>false</GenerateManifest><GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding><OptimizeReferences>true</OptimizeReferences>
+      <RandomizedBaseAddress>true</RandomizedBaseAddress><DataExecutionPrevention>true</DataExecutionPrevention>
+      <AdditionalOptions>/guard:cf /HIGHENTROPYVA %(AdditionalOptions)</AdditionalOptions>
+    </Link>
+  </ItemDefinitionGroup>
+</Project>

@@ -1,0 +1,22 @@
+bin/
+obj/
+.vs/
+artifacts/*.bmp
+*.user
+dist/
+artifacts/update-fixtures/
+artifacts/update-run-*/
+*.dpapi
+
+artifacts/feature-config/
+ci-output/
+*.pfx
+*.key
+*.zip
+
+# Local audit, private configuration and build results
+artifacts/
+work/
+outputs/
+__pycache__/
+*.p12

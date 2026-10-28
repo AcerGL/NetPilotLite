@@ -1,0 +1,6 @@
+#include <windows.h>
+1 RT_MANIFEST "tests.manifest"
+1 ICON "../assets/NetPilotLite.ico"
+200 RCDATA "../assets/cover.jpg"
+201 RCDATA "../assets/update-key.bin"
+202 RCDATA "../bin/Release/NetPilotLite.Updater.exe"
