@@ -26,7 +26,9 @@
 
 11 月 1 日源码同步前，已认证 `/actions/runs` 为 `total_count:0`。远端旧 release.yml 只有 tag/dispatch 触发，普通源码上传不会发布；还依赖签名 runner 和多个开关。没有证据表明曾发生 Release 权限失败。
 
-本次 build.yml 增加 main 普通构建；release.yml 增加版本前置检查、固定 commit、同标签串行、签名与发布分离、仅 publish job 获得 contents:write、draft 上传、逐文件回读校验、最后发布和 latest 回查。已有 published 资产不会自动覆盖。真实 CI 结果在源码同步后另行核对；正式发布 job 未执行。
+本次 build.yml 增加 main 普通构建；release.yml 增加版本前置检查、固定 commit、同标签串行、签名与发布分离、仅 publish job 获得 contents:write、draft 上传、逐文件回读校验、最后发布和 latest 回查。已有 published 资产不会自动覆盖。
+
+源码提交 `fd9bfa454b49a1ae2310589cbdb47306906d298a` 已同步 main。[真实 Actions run 41320690329](https://github.com/AcerGL/NetPilotLite/actions/runs/41320690329) 的 Windows build job 成功：版本/脚本检查、C17 Release 编译、核心模拟 44 项、无签名下载 fixture 的协议测试 75 项、分流诊断 60 项均通过。已上传 `NetPilotLite-unsigned-win-x64` Actions Artifact（ID 13088618277，1,247,994 字节）；它只是无签名 CI 预览，不是 Release，不可用于自动更新。CI 未运行私钥签名、Offline 安装或正式发布 job。编译日志保留已有第三方 libyaml 类型转换等警告，未宣称零警告。
 
 ## 6. latest 结果及根因
 
