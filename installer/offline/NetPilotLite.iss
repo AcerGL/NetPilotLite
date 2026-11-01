@@ -1,5 +1,5 @@
 #ifndef ProductVersion
-#define ProductVersion "1.3.0"
+#define ProductVersion "1.3.1"
 #endif
 ; IMMUTABLE: change only for a different product, never for an upgrade.
 #define ProductId "{C47B553D-22CE-4CDD-BA10-2930FC8266D4}"

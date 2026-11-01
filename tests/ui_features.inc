@@ -105,6 +105,32 @@ static void feature_ui_tick(void) {
     FUI(wcsstr(online.status, L"模拟") != NULL);
     show_settings();
     settings_page(6);
+    FUI(online.failed && IsWindowEnabled(GetDlgItem(a.settings_content, 607)));
+    FUI(IsWindowEnabled(GetDlgItem(a.settings_content, 608)));
+    FUI(!IsWindowEnabled(GetDlgItem(a.settings_content, 605)) && !online.verified);
+    ONLINE_JOB *result = calloc(1, sizeof(*result));
+    FUI(result != NULL);
+    if (result) {
+        DWORD current[4] = {NP_VERSION_NUM};
+        result->ok = TRUE;
+        memcpy(result->release.version, current, sizeof(current));
+        wcscpy_s(result->release.tag, 64, L"v" NP_VERSION);
+        ++a.async_jobs;
+        online_done(result);
+        FUI(!online.available && wcsstr(online.status, L"已经是最新版本") != NULL);
+        FUI(!IsWindowEnabled(GetDlgItem(a.settings_content, 605)));
+    }
+    result = calloc(1, sizeof(*result));
+    FUI(result != NULL);
+    if (result) {
+        result->ok = TRUE;
+        result->release.version[0] = 2;
+        wcscpy_s(result->release.tag, 64, L"v2.0.0");
+        ++a.async_jobs;
+        online_done(result);
+        FUI(online.available && !online.verified);
+        FUI(IsWindowEnabled(GetDlgItem(a.settings_content, 604)) && !IsWindowEnabled(GetDlgItem(a.settings_content, 605)));
+    }
     RedrawWindow(a.settings, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
     capture_window(a.settings, L"artifacts\\v120-update.bmp");
     FUI(a.mock_data.writes == 0);

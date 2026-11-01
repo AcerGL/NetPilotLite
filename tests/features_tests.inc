@@ -101,16 +101,37 @@ static int feature_tests(const WCHAR *fixture) {
     np_http_fixture.active = TRUE;
     np_http_fixture.json = release_json;
     volatile LONG cancel = 0;
-    DWORD statuses[] = {404, 403, 429, 407, 500};
+    DWORD statuses[] = {401, 404, 403, 429, 407, 500};
     for (int i = 0; i < _countof(statuses); ++i) {
         np_http_fixture.status = statuses[i];
-        CHECK(!np_online_check(&settings.update, r, &cancel, &e) && e.win32 == statuses[i]);
+        CHECK(!np_online_check(&settings.update, r, &cancel, &e) && e.http_status == statuses[i] && wcsstr(e.operation, L"HTTP"));
     }
+    np_http_fixture.status = 404;
+    np_http_fixture.repo_status = 200;
+    np_http_fixture.repo_json = "{\"private\":false}";
+    CHECK(!np_online_check(&settings.update, r, &cancel, &e) && e.win32 == ERROR_NOT_FOUND && e.http_status == 404);
+    np_http_fixture.repo_json = "{\"private\":true}";
+    CHECK(!np_online_check(&settings.update, r, &cancel, &e) && e.win32 != ERROR_NOT_FOUND);
+    np_http_fixture.repo_status = 0;
+    DWORD network_errors[] = {12002, 12007, 12175, 12029, 12180};
+    for (int i = 0; i < _countof(network_errors); ++i) {
+        np_http_fixture.status = network_errors[i];
+        CHECK(!np_online_check(&settings.update, r, &cancel, &e) && e.win32 == network_errors[i] && !e.http_status);
+    }
+    strcpy_s(changed, sizeof(changed), release_json);
+    v = strstr(changed, "\"assets\"");
+    strcpy_s(v, sizeof(changed) - (v - changed), "\"assets\":[]}");
+    CHECK(!np_release_json(changed, strlen(changed), &settings.update, r, &e) && e.win32 == ERROR_NOT_FOUND);
+    strcpy_s(changed, sizeof(changed), release_json);
+    v = strstr(changed, "\"Test release\"");
+    memcpy(v, "null          ", 14);
+    CHECK(np_release_json(changed, strlen(changed), &settings.update, r, &e) && !wcscmp(r->name, L"v2.0.0"));
     np_http_fixture.status = 200;
     CHECK(np_online_check(&settings.update, r, &cancel, &e));
     cancel = 1;
     CHECK(!np_online_check(&settings.update, r, &cancel, &e) && e.win32 == ERROR_CANCELLED);
     cancel = 0;
+    CHECK(np_online_check(&settings.update, r, &cancel, &e));
     if (fixture) {
         NP_RELEASE signed_release;
         CHECK(np_verify_release(fixture, &signed_release, &e));
@@ -181,7 +202,7 @@ static int online_probe(void) {
     NP_ERROR e = {0};
     volatile LONG cancel = 0;
     BOOL ok = r && np_online_check(&s.update, r, &cancel, &e);
-    wprintf(L"GitHub read-only latest check AcerGL/NetPilotLite: success=%d error=%lu %s\n", ok, e.win32,
+    wprintf(L"GitHub read-only latest check AcerGL/NetPilotLite: success=%d error=%lu http=%lu %s\n", ok, e.win32, e.http_status,
             e.operation);
     free(r);
     return ok ? 0 : 1;

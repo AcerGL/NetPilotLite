@@ -183,6 +183,11 @@ int wmain(int argc, WCHAR **argv) {
     if (argc >= 2 && !wcscmp(argv[1],L"--feature-tests"))return feature_tests(argc==3?argv[2]:NULL);
     if(argc==2&&!wcscmp(argv[1],L"--apps-probe"))return apps_probe();
     if(argc==2&&!wcscmp(argv[1],L"--online-probe"))return online_probe();
+    if(argc==2&&!wcscmp(argv[1],L"--transport-probe")) {
+        NP_ERROR e={0}; BOOL ok=np_online_transport_probe(&e);
+        wprintf(L"Transport probe: success=%d Windows=%lu HTTP=%lu %s\n",ok,e.win32,e.http_status,e.operation);
+        return ok ? 0 : 1;
+    }
     if(argc==2&&!wcscmp(argv[1],L"--feature-ui"))return np_app_run(GetModuleHandleW(NULL),SW_SHOW,TRUE,6);
     if (argc == 2 && !wcscmp(argv[1], L"--routing-tests"))
         return routing_tests();

@@ -3,8 +3,8 @@
 1 ICON "../../assets/NetPilotLite.ico"
 201 RCDATA "../../assets/update-key.bin"
 1 VERSIONINFO
- FILEVERSION 1,3,0,0
- PRODUCTVERSION 1,3,0,0
+ FILEVERSION 1,3,1,0
+ PRODUCTVERSION 1,3,1,0
  FILEOS VOS_NT_WINDOWS32
  FILETYPE VFT_APP
 BEGIN
@@ -14,7 +14,8 @@ BEGIN
   BEGIN
    VALUE "ProductName", "NetPilot Lite Web Setup\0"
    VALUE "FileDescription", "NetPilot Lite Web Setup\0"
-   VALUE "FileVersion", "1.3.0.0\0"
+   VALUE "FileVersion", "1.3.1.0\0"
+   VALUE "ProductVersion", "1.3.1.0\0"
    VALUE "OriginalFilename", "NetPilotLite-Web-Setup.exe\0"
   END
  END

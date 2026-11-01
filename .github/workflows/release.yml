@@ -1,58 +1,117 @@
-name: Explicit tagged installer release
+name: Windows x64 signed release
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing stable version tag (for example v1.3.1)'
+        required: true
+        type: string
+      publish:
+        description: 'Request approved signing and publication; environment gates still apply'
+        default: false
+        type: boolean
 permissions:
   contents: read
+concurrency:
+  group: release-${{ github.repository }}-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 jobs:
   build:
     runs-on: windows-2022
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           persist-credentials: false
-      - name: Build product and native bootstrapper without signing secrets
+      - name: Pin checked source and validate version before building
+        id: source
+        shell: pwsh
+        run: |
+          ./scripts/validate-version.ps1 -Tag $env:RELEASE_TAG
+          "commit=$(git rev-parse HEAD)" >> $env:GITHUB_OUTPUT
+      - name: Build native product and bootstrapper without signing secrets
         shell: cmd
         run: |
           call build.cmd
           if errorlevel 1 exit /b 1
           call installer\build.cmd
           if errorlevel 1 exit /b 1
-      - name: Read-only tests
+      - name: Mock protocol and configuration tests (no adapter writes)
         shell: pwsh
         run: |
-          & .\bin\Release\NetPilotLite.Tests.exe --feature-tests
-          if ($LASTEXITCODE) { throw 'Protocol/config tests failed' }
+          & ./bin/Release/NetPilotLite.Tests.exe --feature-tests
+          if ($LASTEXITCODE) { throw 'Feature tests failed' }
+          & ./bin/Release/NetPilotLite.Tests.exe --routing-tests
+          if ($LASTEXITCODE) { throw 'Routing tests failed' }
       - uses: actions/upload-artifact@v4
         with:
           name: unsigned-review-only
+          if-no-files-found: error
           path: |
             bin/Release/NetPilotLite.exe
             bin/Release/NetPilotLite-Web-Setup.exe
-  sign:
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-verifier
+          if-no-files-found: error
+          path: bin/Release/NetPilotLite.Tests.exe
+  authorize:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v') && vars.RELEASE_SIGNING_ENABLED == 'true' && vars.LICENSE_CONFIRMED == 'true' && vars.ASSETS_CLEARED == 'true'
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: windows-2022
+    environment: release-signing
+    steps:
+      - name: Require explicit repository release readiness
+        shell: pwsh
+        env:
+          SIGNING_ENABLED: ${{ vars.RELEASE_SIGNING_ENABLED }}
+          LICENSE_CONFIRMED: ${{ vars.LICENSE_CONFIRMED }}
+          ASSETS_CLEARED: ${{ vars.ASSETS_CLEARED }}
+          RELEASE_ALLOWED: ${{ vars.RELEASE_ALLOWED }}
+        run: |
+          foreach ($name in @('SIGNING_ENABLED','LICENSE_CONFIRMED','ASSETS_CLEARED','RELEASE_ALLOWED')) {
+            if ([Environment]::GetEnvironmentVariable($name) -cne 'true') { throw "Release blocked: $name is not explicitly enabled; build artifacts are review-only" }
+          }
+  sign:
+    needs: [build, authorize]
     runs-on: [self-hosted, Windows, X64, netpilot-signing]
+    timeout-minutes: 30
     environment: release-signing
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.build.outputs.commit }}
           persist-credentials: false
-      - name: Build three assets, sign and verify with pinned identity
+      - name: Rebuild exact reviewed commit, package and sign with pinned identity
         shell: pwsh
         env:
           SIGNING_KEY_PATH: ${{ secrets.SIGNING_KEY_PATH }}
           INNO_COMPILER: ${{ vars.INNO_COMPILER }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          if ($env:RELEASE_TAG -notmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw 'Invalid stable tag' }
-          & .\scripts\build-release.ps1 -SigningKey $env:SIGNING_KEY_PATH -InnoCompiler $env:INNO_COMPILER
-          $version=Get-Content -Raw dist/version.json | ConvertFrom-Json
-          if (('v'+$version.version) -ne $env:RELEASE_TAG) { throw 'Source/tag mismatch' }
+          ./scripts/validate-version.ps1 -Tag $env:RELEASE_TAG
+          if (!$env:SIGNING_KEY_PATH -or !$env:INNO_COMPILER) { throw 'Trusted signer is not configured' }
+          ./scripts/build-release.ps1 -SigningKey $env:SIGNING_KEY_PATH -InnoCompiler $env:INNO_COMPILER -ExpectedTag $env:RELEASE_TAG
+          ./scripts/publish-release.ps1 -Tag $env:RELEASE_TAG -Directory dist -VerifierPath bin/Release/NetPilotLite.Tests.exe
+      - name: Signed download and release transport regression tests (mocked HTTP)
+        shell: pwsh
+        env:
+          SIGNING_KEY_PATH: ${{ secrets.SIGNING_KEY_PATH }}
+        run: |
+          & ./tests/build_update_tests.cmd $env:SIGNING_KEY_PATH
+          if ($LASTEXITCODE) { throw 'Signed fixture build failed' }
+          & ./bin/Release/NetPilotLite.Tests.exe --feature-tests artifacts/update-fixtures/fail/NetPilotLite.exe
+          if ($LASTEXITCODE) { throw 'Signed download tests failed' }
+          ./tests/test-release-pipeline.ps1 -Tag $env:RELEASE_TAG
       - uses: actions/upload-artifact@v4
         with:
           name: signed-installers-awaiting-acceptance
+          if-no-files-found: error
           path: |
             dist/NetPilotLite-Web-Setup.exe
             dist/NetPilotLite-Offline-Setup.exe
@@ -64,33 +123,40 @@ jobs:
             dist/release-catalog.json
             dist/release-catalog.json.update
             dist/SHA256SUMS.txt
-          if-no-files-found: error
   publish:
-    needs: sign
-    if: vars.RELEASE_ALLOWED == 'true'
+    needs: [build, sign]
     runs-on: windows-2022
     environment: release-publication
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build.outputs.commit }}
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           name: signed-installers-awaiting-acceptance
           path: release
-      - name: Publish only the reviewed installer hash after isolated acceptance
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-verifier
+          path: verifier
+      - name: Verify signatures; draft, upload, read back, publish accepted bytes
         shell: pwsh
         env:
           ACCEPTED_OFFLINE_SHA256: ${{ vars.ACCEPTED_OFFLINE_SHA256 }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          if ($env:ACCEPTED_OFFLINE_SHA256 -notmatch '^[0-9a-fA-F]{64}$') { throw 'No isolated installer acceptance recorded' }
-          $hash=(Get-FileHash release/NetPilotLite-Offline-Setup.exe).Hash
-          if ($hash -ne $env:ACCEPTED_OFFLINE_SHA256) { throw 'This exact installer has not passed acceptance' }
-          foreach ($line in Get-Content release/SHA256SUMS.txt) {
-            if ($line -notmatch '^([0-9a-f]{64})  ([A-Za-z0-9._-]+)$') { throw 'Invalid checksum entry' }
-            if ((Get-FileHash -LiteralPath ('release/'+$Matches[2])).Hash.ToLowerInvariant() -ne $Matches[1]) { throw 'Asset checksum mismatch' }
-          }
-          & gh release create $env:RELEASE_TAG --repo $env:GH_REPO --verify-tag --generate-notes --title $env:RELEASE_TAG release/*
-          if ($LASTEXITCODE) { throw 'Release failed' }
+          ./scripts/publish-release.ps1 -Tag $env:RELEASE_TAG -Directory release -VerifierPath verifier/NetPilotLite.Tests.exe -PublishApproved
+      - name: Record anonymous channel visibility separately
+        shell: pwsh
+        run: |
+          ./scripts/diagnose-github.ps1 -Repository '${{ github.repository }}' -Anonymous -OutputPath anonymous-channel.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: publication-diagnostics
+          path: anonymous-channel.json
+          if-no-files-found: warn

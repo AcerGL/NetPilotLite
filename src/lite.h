@@ -54,7 +54,8 @@ typedef struct NP_SNAPSHOT {
 typedef struct NP_ERROR {
     DWORD win32;
     DWORD config_ret;
-    WCHAR operation[80];
+    WCHAR operation[256];
+    DWORD http_status; /* Online diagnostics only; never persisted in user settings. */
 } NP_ERROR;
 typedef struct NP_BACKEND {
     void *context;

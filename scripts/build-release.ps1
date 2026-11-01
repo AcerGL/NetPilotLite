@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$SigningKey,
-    [Parameter(Mandatory=$true)][string]$InnoCompiler
+    [Parameter(Mandatory=$true)][string]$InnoCompiler,
+    [string]$ExpectedTag = ''
 )
 $ErrorActionPreference = 'Stop'
 $project = Split-Path -Parent $PSScriptRoot
@@ -8,6 +9,7 @@ $SigningKey = (Resolve-Path -LiteralPath $SigningKey).Path
 $InnoCompiler = (Resolve-Path -LiteralPath $InnoCompiler).Path
 Push-Location $project
 try {
+    if ($ExpectedTag) { & .\scripts\validate-version.ps1 -Tag $ExpectedTag }
     $auth = Get-AuthenticodeSignature -LiteralPath $InnoCompiler
     if ($auth.Status -ne 'Valid' -or $auth.SignerCertificate.Subject -notlike 'CN=Pyrsys B.V.,*') { throw 'Untrusted Inno compiler' }
     $banner = (& $InnoCompiler '--version' 2>&1 | Out-String)

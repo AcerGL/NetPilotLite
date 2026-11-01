@@ -1,5 +1,8 @@
 name: Windows x64 build and read-only tests
 on:
+  push:
+    branches: [main]
+    paths-ignore: ['**/*.md']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -12,6 +15,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Validate source version and PowerShell syntax
+        shell: pwsh
+        run: |
+          $source=Get-Content -Raw src/update.h
+          if ($source -notmatch '#define NP_VERSION L"([0-9.]+)"') { throw 'Missing source version' }
+          ./scripts/validate-version.ps1 -Tag ('v'+$Matches[1])
+          Get-ChildItem scripts,tests -Filter *.ps1 -Recurse | ForEach-Object {
+            $tokens=$null; $errors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors)
+            if ($errors.Count) { throw "PowerShell syntax error: $($_.Name)" }
+          }
       - name: Build C17 Release with static CRT
         shell: cmd
         run: build.cmd

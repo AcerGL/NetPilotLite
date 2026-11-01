@@ -10,13 +10,7 @@ artifacts/update-run-*/
 
 artifacts/feature-config/
 ci-output/
+artifacts/release-closure/
 *.pfx
 *.key
 *.zip
-
-# Local audit, private configuration and build results
-artifacts/
-work/
-outputs/
-__pycache__/
-*.p12

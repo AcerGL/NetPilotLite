@@ -8,11 +8,12 @@ typedef struct ONLINE_JOB {
     WCHAR file[NP_PATH];
 } ONLINE_JOB;
 static struct {
-    BOOL busy, available, verified, started;
+    BOOL busy, available, verified, started, retry_download, failed, install_after_download;
     volatile LONG cancel;
     NP_ONLINE_RELEASE release;
     WCHAR file[NP_PATH], status[1000];
 } online;
+static BOOL online_command(int id);
 static void online_render(void) {
     if (!a.settings_content)
         return;
@@ -23,13 +24,15 @@ static void online_render(void) {
     SetWindowTextW(GetDlgItem(a.settings_content, 611),
                    online.status[0]
                        ? online.status
-                       : L"检查更新使用 GitHub HTTPS API；私有仓库需另行授权，本版不保存访问令牌。");
+                       : L"检查更新使用 GitHub HTTPS API；私有仓库不支持匿名在线更新，请使用已签名本地文件。");
     int ids[] = {216, 217, 600, 601, 602, 603};
     for (int i = 0; i < 6; ++i)
         EnableWindow(GetDlgItem(a.settings_content, ids[i]), !online.busy);
     EnableWindow(GetDlgItem(a.settings_content, 604), online.available && !online.busy && !online.verified);
     EnableWindow(GetDlgItem(a.settings_content, 605),
                  online.verified && !online.busy && a.busy != 2 && !a.mock);
+    EnableWindow(GetDlgItem(a.settings_content, 607), online.failed && !online.busy);
+    EnableWindow(GetDlgItem(a.settings_content, 608), !online.busy);
 }
 static void markdown_notes(HWND w, const WCHAR *body) {
     /* Native RichEdit: headings/bullets/emphasis, literal links; no HTML, scripts or automatic navigation. */
@@ -111,8 +114,13 @@ static void online_start(BOOL download) {
     if (online.busy || a.quit_pending)
         return;
     ONLINE_JOB *j = calloc(1, sizeof(*j));
-    if (!j)
+    if (!j) {
+        wcscpy_s(online.status, 1000, L"内存不足，无法启动更新检查，请重试。");
+        online.failed = TRUE;
+        online.retry_download = download;
+        online_render();
         return;
+    }
     j->window = a.window;
     j->settings = a.prefs.update;
     j->settings.installer = np_current_installed();
@@ -120,6 +128,8 @@ static void online_start(BOOL download) {
     j->release = online.release;
     j->mock = a.mock;
     online.busy = TRUE;
+    online.failed = FALSE;
+    online.retry_download = download;
     InterlockedExchange(&online.cancel, 0);
     ++a.async_jobs;
     wcscpy_s(online.status, 1000, download ? L"正在下载并验证发布者签名…" : L"正在检查 GitHub 稳定版…");
@@ -128,10 +138,12 @@ static void online_start(BOOL download) {
     if (t)
         CloseHandle(t);
     else {
+        DWORD thread_error = GetLastError();
         free(j);
         --a.async_jobs;
         online.busy = FALSE;
-        wcscpy_s(online.status, 1000, L"无法启动更新检查线程");
+        online.failed = TRUE;
+        swprintf_s(online.status, 1000, L"无法启动更新检查线程，Windows %lu；可重试。", thread_error);
         online_render();
     }
 }
@@ -148,12 +160,14 @@ static void online_done(ONLINE_JOB *j) {
         save();
     }
     if (InterlockedCompareExchange(&online.cancel, 0, 0)) {
+        online.install_after_download = FALSE;
         if (j->file[0])
             np_online_cleanup(j->file);
         wcscpy_s(online.status, 1000, L"本次更新已取消。");
-    } else if (!j->ok)
+    } else if (!j->ok) {
+        online.failed = TRUE;
         error_text(&j->error, online.status, 1000);
-    else if (j->download) {
+    } else if (j->download) {
         wcscpy_s(online.file, NP_PATH, j->file);
         online.verified = TRUE;
         wcscpy_s(online.status, 1000,
@@ -167,11 +181,15 @@ static void online_done(ONLINE_JOB *j) {
                        j->release.published, (double)j->release.size / 1048576.0, j->release.name);
             message(L"发现新版本，可在“设置 → 更新”查看。不会自动下载或安装。");
         } else
-            wcscpy_s(online.status, 1000, L"已检查稳定版：没有更高版本。不会降级或重复安装。");
+            swprintf_s(online.status, 1000, L"最新稳定版：%s；%s", j->release.tag,
+                np_version_compare(j->release.version, current) == 0 ? L"已经是最新版本。" : L"当前版本较新，不会降级。");
         markdown_notes(GetDlgItem(a.settings_content, 612), j->release.body);
     }
+    BOOL confirm_install = j->ok && j->download && online.verified && online.install_after_download && !a.quit_pending;
+    if (confirm_install) online.install_after_download = FALSE;
     free(j);
     online_render();
+    if (confirm_install) online_command(605);
 }
 static void online_controls(HWND w) {
     slabel(w, 6, 0, L"当前版本 " NP_VERSION L" · Stable\n原地更新 NetPilotLite.exe，保留绑定与偏好。");
@@ -188,17 +206,34 @@ static void online_controls(HWND w) {
     sbutton(w, 6, 1, 1, 278, L"从本地文件更新…", 217);
     cell(w, 6, 0, 2, 330, 98, L"STATIC", L"", SS_NOPREFIX, 611);
     cell(w, 6, 0, 2, 440, 16, PROGRESS_CLASSW, L"", 0, 613);
-    sbutton(w, 6, 0, 1, 474, L"下载并验证", 604);
+    sbutton(w, 6, 0, 1, 474, L"下载并安装…", 604);
     sbutton(w, 6, 1, 1, 474, L"安装更新…", 605);
     sbutton(w, 6, 0, 1, 524, L"稍后更新 / 取消", 606);
     sbutton(w, 6, 1, 1, 524, L"查看更新日志", 218);
-    cell(w, 6, 0, 2, 580, 220, MSFTEDIT_CLASS, L"暂无远端更新日志。",
+    sbutton(w, 6, 0, 1, 574, L"重试", 607);
+    sbutton(w, 6, 1, 1, 574, L"查看 GitHub Release", 608);
+    cell(w, 6, 0, 2, 630, 220, MSFTEDIT_CLASS, L"暂无远端更新日志。",
          ES_MULTILINE | ES_READONLY | WS_VSCROLL | WS_BORDER | WS_TABSTOP, 612);
     markdown_notes(GetDlgItem(a.settings_content, 612),
                    online.release.body[0] ? online.release.body : L"暂无远端更新日志。");
     online_render();
 }
 static BOOL online_command(int id) {
+    if (id == 607) {
+        if (online.failed && !online.busy) online_start(online.retry_download && online.available);
+        return TRUE;
+    }
+    if (id == 608) {
+        WCHAR url[512];
+        if (np_repo_valid(a.prefs.update.owner, a.prefs.update.repo)) {
+            swprintf_s(url, 512, L"https://github.com/%s/%s/releases", a.prefs.update.owner, a.prefs.update.repo);
+            if ((INT_PTR)ShellExecuteW(a.settings, L"open", url, NULL, NULL, SW_SHOWNORMAL) <= 32) {
+                wcscpy_s(online.status, 1000, L"无法打开默认浏览器，请手动访问配置仓库的 Releases 页面。");
+                online_render();
+            }
+        }
+        return TRUE;
+    }
     if (id == 602 || id == 603) {
         if (online_save_config()) {
             wcscpy_s(online.status, 1000, L"仓库配置已保存。");
@@ -208,6 +243,7 @@ static BOOL online_command(int id) {
     }
     if (id == 216) {
         if (online_save_config()) {
+            online.install_after_download = FALSE;
             online.available = online.verified = FALSE;
             if (online.file[0])
                 np_online_cleanup(online.file);
@@ -217,11 +253,14 @@ static BOOL online_command(int id) {
         return TRUE;
     }
     if (id == 604) {
-        if (online.available && !online.verified)
+        if (online.available && !online.verified) {
+            online.install_after_download = TRUE;
             online_start(TRUE);
+        }
         return TRUE;
     }
     if (id == 606) {
+        online.install_after_download = FALSE;
         InterlockedExchange(&online.cancel, 1);
         if (!online.busy) {
             if (online.file[0])
@@ -258,8 +297,11 @@ static BOOL online_command(int id) {
               np_update_start(a.settings, online.file, &e))) {
             error_text(&e, online.status, 1000);
             online_render();
-        } else
+        } else {
+            wcscpy_s(online.status, 1000, L"安装状态：已启动受信任的更新器，等待旧实例正常退出及新版启动验证。");
+            online_render();
             message(L"已启动受控更新器，等待本实例正常退出…");
+        }
         return TRUE;
     }
     return FALSE;

@@ -12,13 +12,48 @@
 static const WCHAR *asset_name(BOOL setup) { return setup ? SETUP_ASSET : APP_ASSET; }
 static const WCHAR *signature_name(BOOL setup) { return setup ? SETUP_ASSET L".update" : APP_ASSET L".update"; }
 #define PAYLOAD_LIMIT (64ULL * 1024 * 1024)
+static void http_error(NP_ERROR *e, DWORD status, const WCHAR *retry, const WCHAR *reset) {
+    WCHAR reason[256];
+    const WCHAR *message = L"服务器请求失败；可重试";
+    switch (status) {
+    case 401: message = L"认证失败；此客户端不保存 Token，私有仓库请使用已签名本地更新"; break;
+    case 403: message = L"访问被拒绝或 API 配额耗尽；不能据此判定没有 Release"; break;
+    case 404: message = L"资源不存在、私有不可见或路径错误；不能据此判定已是最新版"; break;
+    case 407: message = L"代理要求身份验证；请检查当前 Windows 代理，程序不会修改它"; break;
+    case 429: message = L"GitHub 请求受限，请按 Retry-After / Reset 稍后重试"; break;
+    }
+    swprintf_s(reason, 256, L"HTTP %lu：%s。Retry-After=%s；Reset=%s", status, message,
+               retry && *retry ? retry : L"未提供", reset && *reset ? reset : L"未提供");
+    np_error(e, ERROR_WINHTTP_INVALID_SERVER_RESPONSE, 0, reason);
+    e->http_status = status;
+}
+static const WCHAR *network_reason(DWORD code) {
+    switch (code) {
+    case ERROR_CANCELLED: return L"更新已取消，可重新检查或下载";
+    case ERROR_TIMEOUT: case ERROR_WINHTTP_TIMEOUT: return L"HTTPS 请求超时，请检查当前网络或代理后重试";
+    case ERROR_WINHTTP_NAME_NOT_RESOLVED: return L"DNS 无法解析 GitHub 或代理主机；尚未获得 Release 响应";
+    case ERROR_WINHTTP_SECURE_FAILURE: return L"TLS 证书验证失败；已阻止下载，不会绕过证书验证";
+    case ERROR_WINHTTP_CANNOT_CONNECT: case ERROR_WINHTTP_CONNECTION_ERROR:
+        return L"无法连接或连接中断；使用 Windows 自动代理，请检查网络、TUN 和代理后重试";
+    case ERROR_WINHTTP_AUTODETECTION_FAILED: case ERROR_WINHTTP_BAD_AUTO_PROXY_SCRIPT:
+    case ERROR_WINHTTP_UNABLE_TO_DOWNLOAD_SCRIPT: return L"Windows 自动代理检测或 PAC 脚本失败，请检查代理后重试";
+    case ERROR_FILE_TOO_LARGE: return L"下载超过允许大小，已阻止更新";
+    default: return L"HTTPS 或缓存操作失败；请参考 Windows 错误代码后重试";
+    }
+}
 #ifdef NP_READONLY_BUILD
 NP_HTTP_FIXTURE np_http_fixture;
 static BOOL fixture_request(const WCHAR *url, BOOL asset, BYTE **memory, DWORD *length, HANDLE file,
                             ULONGLONG limit, volatile LONG *cancel, NP_DOWNLOAD_PROGRESS progress, void *ctx,
                             NP_ERROR *e) {
-    if (np_http_fixture.status != 200) {
-        np_error(e, np_http_fixture.status, 0, L"模拟 HTTP 失败（无网络请求）");
+    BOOL repo = !asset && !wcsstr(url, L"/releases/latest") && np_http_fixture.repo_status;
+    DWORD status = repo ? np_http_fixture.repo_status : np_http_fixture.status;
+    if (status >= 12000) {
+        np_error(e, status, 0, network_reason(status));
+        return FALSE;
+    }
+    if (status != 200) {
+        http_error(e, status, NULL, NULL);
         return FALSE;
     }
     if (cancel && InterlockedCompareExchange(cancel, 0, 0)) {
@@ -26,11 +61,12 @@ static BOOL fixture_request(const WCHAR *url, BOOL asset, BYTE **memory, DWORD *
         return FALSE;
     }
     if (!asset) {
-        size_t n = strlen(np_http_fixture.json);
+        const char *json = repo ? np_http_fixture.repo_json : np_http_fixture.json;
+        size_t n = strlen(json);
         *memory = malloc(n);
         if (!*memory)
             return FALSE;
-        memcpy(*memory, np_http_fixture.json, n);
+        memcpy(*memory, json, n);
         *length = (DWORD)n;
         return TRUE;
     }
@@ -149,6 +185,7 @@ static BOOL strfield(const NP_JSON *j, int obj, const char *key, WCHAR *out, siz
 BOOL np_release_json(const char *text, size_t n, const NP_UPDATE_SETTINGS *s, NP_ONLINE_RELEASE *out,
                      NP_ERROR *e) {
     NP_JSON j;
+    ZeroMemory(e, sizeof(*e));
     ZeroMemory(out, sizeof(*out));
     out->installer = s->installer;
     if (!np_repo_valid(s->owner, s->repo) || wcscmp(s->channel, L"Stable") || !np_json_parse(&j, text, n))
@@ -156,7 +193,12 @@ BOOL np_release_json(const char *text, size_t n, const NP_UPDATE_SETTINGS *s, NP
     BOOL ok = j.tokens[0].type == '{' && np_json_false(&j, np_json_field(&j, 0, "draft")) &&
               np_json_false(&j, np_json_field(&j, 0, "prerelease")) &&
               strfield(&j, 0, "tag_name", out->tag, 64) && np_semver(out->tag, out->version) &&
-              strfield(&j, 0, "name", out->name, 256) && strfield(&j, 0, "published_at", out->published, 64);
+              strfield(&j, 0, "published_at", out->published, 64);
+    int title = np_json_field(&j, 0, "name");
+    if (title >= 0 && j.tokens[title].type == 'n')
+        wcscpy_s(out->name, 256, out->tag);
+    else
+        ok = ok && strfield(&j, 0, "name", out->name, 256);
     int body = np_json_field(&j, 0, "body");
     if (body >= 0 && j.tokens[body].type == '"')
         ok = ok && np_json_string(&j, body, out->body, 16384);
@@ -208,6 +250,11 @@ BOOL np_release_json(const char *text, size_t n, const NP_UPDATE_SETTINGS *s, NP
     np_json_free(&j);
     if (ok && exe == 1 && sig == 1)
         return TRUE;
+    if (ok && exe <= 1 && sig <= 1) {
+        np_error(e, ERROR_NOT_FOUND, 0,
+                 L"当前 Release 缺少适用于 Windows x64 的安装包或可信签名清单；无法下载更新");
+        return FALSE;
+    }
 invalid:
     np_error(
         e, ERROR_INVALID_DATA, 0,
@@ -235,7 +282,8 @@ static BOOL request(const WCHAR *initial, BOOL asset, BYTE **memory, DWORD *leng
                           WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session)
         goto done;
-    WinHttpSetTimeouts(session, 5000, 10000, 15000, 20000);
+    if (!WinHttpSetTimeouts(session, 5000, 10000, 15000, 20000))
+        goto done;
     for (int redirects = 0; redirects <= 5; ++redirects) {
         WCHAR host[256], path[4096];
         URL_COMPONENTS u = {sizeof(u)};
@@ -294,25 +342,13 @@ static BOOL request(const WCHAR *initial, BOOL asset, BYTE **memory, DWORD *leng
             continue;
         }
         if (status != 200) {
-            WCHAR reason[220];
-            if (status == 404)
-                wcscpy_s(reason, 220,
-                         L"GitHub 返回 404：仓库为私有、无权访问，或尚未发布稳定版；这不代表当前已是最新版");
-            else if (status == 403 || status == 429) {
-                WCHAR reset[80] = L"", retry[80] = L"";
-                n = sizeof(reset);
-                WinHttpQueryHeaders(req, WINHTTP_QUERY_CUSTOM, L"X-RateLimit-Reset", reset, &n, NULL);
-                n = sizeof(retry);
-                WinHttpQueryHeaders(req, WINHTTP_QUERY_CUSTOM, L"Retry-After", retry, &n, NULL);
-                swprintf_s(reason, 220,
-                           L"GitHub 限流或访问被拒绝（HTTP %lu）；Retry-After=%s，Reset=%s。请稍后重试",
-                           status, retry, reset);
-            } else if (status == 407)
-                wcscpy_s(reason, 220, L"代理要求身份验证；请检查 Windows 代理配置，程序不会修改它");
-            else
-                swprintf_s(reason, 220, L"更新请求失败（HTTP %lu）", status);
+            WCHAR reset[40] = L"", retry[40] = L"";
+            n = sizeof(reset);
+            WinHttpQueryHeaders(req, WINHTTP_QUERY_CUSTOM, L"X-RateLimit-Reset", reset, &n, NULL);
+            n = sizeof(retry);
+            WinHttpQueryHeaders(req, WINHTTP_QUERY_CUSTOM, L"Retry-After", retry, &n, NULL);
             error = ERROR_WINHTTP_INVALID_SERVER_RESPONSE;
-            np_error(e, error, 0, reason);
+            http_error(e, status, retry, reset);
             goto done;
         }
         for (;;) {
@@ -362,13 +398,9 @@ static BOOL request(const WCHAR *initial, BOOL asset, BYTE **memory, DWORD *leng
 done:
     if (!ok && !e->win32) {
         DWORD last = GetLastError();
-        np_error(e,
-                 error != ERROR_GEN_FAILURE ? error
-                 : last                     ? last
-                                            : error,
-                 0,
-                 error == ERROR_CANCELLED ? L"更新已取消"
-                                          : L"HTTPS 更新失败；请检查网络、证书、代理或下载大小限制");
+        DWORD code = error != ERROR_GEN_FAILURE ? error : last ? last : error;
+        if (cancel && InterlockedCompareExchange(cancel, 0, 0)) code = ERROR_CANCELLED;
+        np_error(e, code, 0, network_reason(code));
     }
     if (req)
         WinHttpCloseHandle(req);
@@ -393,8 +425,27 @@ BOOL np_online_check(const NP_UPDATE_SETTINGS *s, NP_ONLINE_RELEASE *r, volatile
     swprintf_s(url, 512, L"https://api.github.com/repos/%s/%s/releases/latest", s->owner, s->repo);
     BYTE *bytes = NULL;
     DWORD n = 0;
-    if (!request(url, FALSE, &bytes, &n, INVALID_HANDLE_VALUE, 1024 * 1024, cancel, NULL, NULL, e))
+    ZeroMemory(r, sizeof(*r));
+    if (!request(url, FALSE, &bytes, &n, INVALID_HANDLE_VALUE, 1024 * 1024, cancel, NULL, NULL, e)) {
+        /* A private repository and an absent release both return 404 anonymously.
+           Confirm public visibility before reporting an empty stable channel. */
+        if (e->http_status == 404) {
+            NP_ERROR probe = {0};
+            swprintf_s(url, 512, L"https://api.github.com/repos/%s/%s", s->owner, s->repo);
+            if (request(url, FALSE, &bytes, &n, INVALID_HANDLE_VALUE, 1024 * 1024, cancel, NULL, NULL, &probe)) {
+                NP_JSON j;
+                if (np_json_parse(&j, (char *)bytes, n)) {
+                    if (j.tokens[0].type == '{' && np_json_false(&j, np_json_field(&j, 0, "private"))) {
+                        np_error(e, ERROR_NOT_FOUND, 0, L"尚无可用发布版本：公开仓库可访问，但 latest 没有稳定版");
+                        e->http_status = 404;
+                    }
+                    np_json_free(&j);
+                }
+                free(bytes);
+            } else if (probe.win32 == ERROR_CANCELLED) *e = probe;
+        }
         return FALSE;
+    }
     BOOL ok = np_release_json((char *)bytes, n, s, r, e);
     free(bytes);
     return ok;
@@ -420,6 +471,47 @@ BOOL np_online_verify(const WCHAR *path, const NP_ONLINE_RELEASE *r, NP_ERROR *e
     }
     return TRUE;
 }
+#ifdef NP_READONLY_BUILD
+/* Explicit diagnostic only: public GitHub CLI checksum text is never saved or executed.
+   Exercises the SAME WinHTTP proxy/TLS/CDN path without requiring a NetPilot release. */
+BOOL np_online_transport_probe(NP_ERROR *e) {
+    BYTE *bytes = NULL;
+    DWORD n = 0;
+    volatile LONG cancel = 0;
+    ZeroMemory(e, sizeof(*e));
+    if (!request(L"https://api.github.com/repos/cli/cli/releases/latest", FALSE, &bytes, &n,
+                 INVALID_HANDLE_VALUE, 1024 * 1024, &cancel, NULL, NULL, e)) return FALSE;
+    NP_JSON j;
+    WCHAR tag[64], name[128], url[512];
+    DWORD version[4];
+    BOOL ok = np_json_parse(&j, (char *)bytes, n);
+    BOOL found = FALSE;
+    if (ok) {
+        ok = strfield(&j, 0, "tag_name", tag, 64) && np_semver(tag, version) && tag[0] == L'v';
+        if (ok) {
+            swprintf_s(name, 128, L"gh_%s_checksums.txt", tag + 1);
+            swprintf_s(url, 512, L"https://github.com/cli/cli/releases/download/%s/%s", tag, name);
+            int assets = np_json_field(&j, 0, "assets");
+            if (assets >= 0 && j.tokens[assets].type == '[')
+                for (int i = assets + 1; i < j.tokens[assets].next; i = j.tokens[i].next) {
+                    WCHAR item[128], location[512];
+                    if (strfield(&j, i, "name", item, 128) && !wcscmp(item, name) &&
+                        strfield(&j, i, "browser_download_url", location, 512) && !wcscmp(location, url)) found = TRUE;
+                }
+        }
+        np_json_free(&j);
+    }
+    free(bytes); bytes = NULL;
+    if (!ok || !found) { np_error(e, ERROR_INVALID_DATA, 0, L"Public diagnostic checksum asset missing"); return FALSE; }
+    ok = request(url, TRUE, &bytes, &n, INVALID_HANDLE_VALUE, 65536, &cancel, NULL, NULL, e);
+    if (ok) {
+        ok = n > 0;
+        wprintf(L"Real public API + HTTPS asset/CDN download: %s, %lu bytes; text only, no execution.\n", name, n);
+    }
+    free(bytes);
+    return ok;
+}
+#endif
 void np_online_cleanup(const WCHAR *path) {
     /* Only the generated cache shape is eligible. Never recursive, never a caller-supplied arbitrary target.
      */

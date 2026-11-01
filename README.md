@@ -1,14 +1,10 @@
-# 双物理出口只读原型
+# NetPilot Lite 1.3.1 · 发布与更新修复候选
 
-新增 Mihomo TUN 双出口配置预览和连接诊断原型，源码在 `prototype/dual-egress`，项目为 `NetPilotLite.DualEgress.vcxproj`。原正式版功能保持不变。
+本版修复 GitHub 状态诊断、缺失安装资产提示、更新重试，以及签名发布前的资产回读验证。已在 Windows 编译和测试；**尚未正式发布，尚未完成真实在线安装闭环**。当前 `AcerGL/NetPilotLite` 为私有仓库且没有 Release，匿名客户端暂不能更新。
 
-本地 Release x64 构建、30 项原生测试、35 项配置转换测试通过；同版本 Mihomo 配置检查通过。尚未实际启用分流或验证热点断线不回退，不能作为已经验收的保护功能。
+详见 [本次验收报告](docs/RELEASE_CLOSURE_1.3.1.md) 和 [发布步骤](docs/RELEASE.md)。源码提交与普通 CI 构建不会创建正式 Release。
 
-参见 [使用与构建](docs/DUAL_EGRESS.md) 和 [脱敏验收说明](docs/DUAL_EGRESS_REPORT.md)。本机路由、DNS、订阅凭据、私有候选配置和备份不进入仓库。
-
----
-
-# NetPilot Lite 1.3.0 · 安装分发候选
+## 1.3.0 安装分发基础
 
 新增 Web Setup、Inno Offline Setup 与 Portable ZIP，固定 AppId，签名验证，正常退出后原目录升级。**本次已构建，尚未进行隔离 Windows 安装验收，未发布 GitHub Release。**
 
@@ -92,9 +88,3 @@
 新增测试：`--feature-tests [签名的 2.0.0 故障样本 EXE]`、`--feature-ui`、`--apps-probe`、`--online-probe`。后两项只读真实环境；前两项使用模拟数据。GitHub Actions 工程目录根下的 `.github/workflows` 仅已准备，尚未运行。
 
 每次重复升级测试请运行 `tools\test-upgrade.ps1`：自动复制模拟样本到新的测试根目录，保留故障证据，避免复用残留的未来 schema 和中断事务目录。不要将正式用户 EXE 放入测试样本目录。
-
-## 只读原型下载
-
-[下载 Release x64 只读原型](downloads/NetPilotLite-DualEgress-Prototype-x64.zip) · [SHA-256](downloads/SHA256SUMS.txt)
-
-这是未签名的诊断原型，不是已验收的双出口保护版本，也不通过正式版在线更新器推送。不会自动更改真实网络或 Clash 配置。

@@ -43,7 +43,10 @@ typedef struct NP_HTTP_FIXTURE {
     const char *json;
     WCHAR exe[NP_PATH], directory[NP_PATH];
     BOOL interrupt;
+    DWORD repo_status; /* Optional second request when latest returns 404. */
+    const char *repo_json;
 } NP_HTTP_FIXTURE;
 extern NP_HTTP_FIXTURE np_http_fixture;
+BOOL np_online_transport_probe(NP_ERROR *);
 #endif
 #endif
