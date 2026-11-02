@@ -2,6 +2,8 @@
 
 日期：2026-11-02（Asia/Shanghai）。这是本地构建与分层验证报告，**不是完整私有 Release 在线升级已验收的声明**。
 
+源码已经同步到私有仓库，代码提交 [`78a032f`](https://github.com/AcerGL/NetPilotLite/commit/78a032fc12b25435c88998675658759d19159dca)。[Windows GitHub Actions 41439037580](https://github.com/AcerGL/NetPilotLite/actions/runs/41439037580) 实际完成并成功：核心 44、功能 75、私有更新 46、路由 60 项检查全部通过。云端未配置签名测试文件，因此功能检查数量低于本地的 87；这次工作流仅生成未签名审阅构建，不是 Release。新更新代码没有编译警告；全新云端构建存在原有第三方 libyaml 警告。
+
 ## 已执行结果
 
 | 检查 | 实际结果 |
