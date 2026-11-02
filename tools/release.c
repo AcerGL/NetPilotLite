@@ -4,6 +4,33 @@
 #include <wincrypt.h>
 #include <stddef.h>
 #include <stdio.h>
+#include "json.h"
+static BOOL catalog_version(const WCHAR *path, DWORD v[4]) {
+    HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    DWORD n = f == INVALID_HANDLE_VALUE ? 0 : GetFileSize(f, NULL);
+    if (f != INVALID_HANDLE_VALUE)
+        CloseHandle(f);
+    char *bytes = n && n <= 65536 ? malloc(n) : NULL;
+    NP_JSON j;
+    WCHAR value[64], roundtrip[64];
+    unsigned x, y, z;
+    BOOL ok = bytes && np_read_exact(path, bytes, n) && np_json_parse(&j, bytes, n);
+    if (ok) {
+        ok = np_json_string(&j, np_json_field(&j, 0, "version"), value, 64);
+        np_json_free(&j);
+    }
+    free(bytes);
+    if (!ok || swscanf_s(value, L"%u.%u.%u", &x, &y, &z) != 3 || x > 65535 || y > 65535 || z > 65535)
+        return FALSE;
+    swprintf_s(roundtrip, 64, L"%u.%u.%u", x, y, z);
+    if (wcscmp(roundtrip, value))
+        return FALSE;
+    v[0] = x;
+    v[1] = y;
+    v[2] = z;
+    v[3] = 0;
+    return TRUE;
+}
 int wmain(int argc, WCHAR **argv) {
     BCRYPT_ALG_HANDLE a = NULL;
     BCRYPT_KEY_HANDLE k = NULL;
@@ -34,10 +61,14 @@ int wmain(int argc, WCHAR **argv) {
                  np_write_exact(argv[3], public_blob, 72);
         if (sealed.pbData)
             LocalFree(sealed.pbData);
-    } else if (!wcscmp(argv[1], L"sign") || !wcscmp(argv[1], L"sign-installer") || !wcscmp(argv[1], L"sign-catalog")) {
+    } else if (!wcscmp(argv[1], L"sign") || !wcscmp(argv[1], L"sign-installer") ||
+               !wcscmp(argv[1], L"sign-catalog")) {
         BOOL installer = !wcscmp(argv[1], L"sign-installer");
         BOOL catalog = !wcscmp(argv[1], L"sign-catalog");
-        HANDLE f = CreateFileW(argv[2], GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+        BOOL environment = !wcscmp(argv[2], L"ENV");
+        HANDLE f = environment
+                       ? INVALID_HANDLE_VALUE
+                       : CreateFileW(argv[2], GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
         DWORD size = f == INVALID_HANDLE_VALUE ? 0 : GetFileSize(f, NULL), got;
         if (size && size < 65536) {
             sealed.pbData = malloc(size);
@@ -46,7 +77,19 @@ int wmain(int argc, WCHAR **argv) {
         }
         if (f != INVALID_HANDLE_VALUE)
             CloseHandle(f);
-        if (ok)
+        if (environment) {
+            WCHAR encoded[256] = {0};
+            DWORD decoded = sizeof(private_blob);
+            DWORD count = GetEnvironmentVariableW(L"NETPILOT_SIGNING_KEY_B64", encoded, _countof(encoded));
+            ok = count > 0 && count < _countof(encoded) &&
+                 CryptStringToBinaryW(encoded, count, CRYPT_STRING_BASE64 | CRYPT_STRING_STRICT, private_blob,
+                                      &decoded, NULL, NULL) &&
+                 decoded == sizeof(private_blob) &&
+                 BCryptImportKeyPair(a, NULL, BCRYPT_ECCPRIVATE_BLOB, &k, private_blob, decoded, 0) >= 0;
+            SecureZeroMemory(encoded, sizeof(encoded));
+            SecureZeroMemory(private_blob, sizeof(private_blob));
+            SetEnvironmentVariableW(L"NETPILOT_SIGNING_KEY_B64", NULL);
+        } else if (ok)
             ok = CryptUnprotectData(&sealed, NULL, NULL, NULL, NULL, CRYPTPROTECT_UI_FORBIDDEN, &raw) &&
                  BCryptImportKeyPair(a, NULL, BCRYPT_ECCPRIVATE_BLOB, &k, raw.pbData, raw.cbData, 0) >= 0;
         if (ok) {
@@ -64,11 +107,14 @@ int wmain(int argc, WCHAR **argv) {
         LARGE_INTEGER length = {0};
         if (ok)
             ok = f != INVALID_HANDLE_VALUE && GetFileSizeEx(f, &length) &&
-                 (catalog || (installer ? np_installer_version(argv[3], r.version) : np_file_version(argv[3], r.version))) && np_hash_file(argv[3], r.hash);
+                 (catalog || (installer ? np_installer_version(argv[3], r.version)
+                                        : np_file_version(argv[3], r.version))) &&
+                 np_hash_file(argv[3], r.hash);
         if (f != INVALID_HANDLE_VALUE)
             CloseHandle(f);
         r.size = (ULONGLONG)length.QuadPart;
-        if (catalog) { DWORD v[4] = {NP_VERSION_NUM}; memcpy(r.version, v, sizeof(v)); }
+        if (catalog)
+            ok = ok && catalog_version(argv[3], r.version);
         if (ok)
             ok = np_hash(&r, (DWORD)offsetof(NP_RELEASE, signature), digest) &&
                  BCryptSignHash(k, NULL, digest, 32, r.signature, 64, &n, 0) >= 0 && n == 64;

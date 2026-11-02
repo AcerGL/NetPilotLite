@@ -1,8 +1,8 @@
 #ifndef NP_UPDATE_H
 #define NP_UPDATE_H
 #include "lite.h"
-#define NP_VERSION L"1.3.1"
-#define NP_VERSION_NUM 1, 3, 1, 0
+#define NP_VERSION L"1.4.0"
+#define NP_VERSION_NUM 1, 4, 0, 0
 #define NP_PATH 1024
 #define NP_SIGNATURE_ERROR ((DWORD)0x80096010L) /* TRUST_E_BAD_DIGEST */
 #pragma pack(push, 1)

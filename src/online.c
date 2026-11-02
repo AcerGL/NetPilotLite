@@ -1,4 +1,5 @@
 #include "online.h"
+#include "private_update.h"
 #include "settings.h"
 #include "json.h"
 #include <winhttp.h>
@@ -9,18 +10,32 @@
 #include <shlwapi.h>
 #define APP_ASSET L"NetPilotLite.exe"
 #define SETUP_ASSET L"NetPilotLite-Offline-Setup.exe"
-static const WCHAR *asset_name(BOOL setup) { return setup ? SETUP_ASSET : APP_ASSET; }
-static const WCHAR *signature_name(BOOL setup) { return setup ? SETUP_ASSET L".update" : APP_ASSET L".update"; }
+static const WCHAR *asset_name(BOOL setup) {
+    return setup ? SETUP_ASSET : APP_ASSET;
+}
+static const WCHAR *signature_name(BOOL setup) {
+    return setup ? SETUP_ASSET L".update" : APP_ASSET L".update";
+}
 #define PAYLOAD_LIMIT (64ULL * 1024 * 1024)
 static void http_error(NP_ERROR *e, DWORD status, const WCHAR *retry, const WCHAR *reset) {
     WCHAR reason[256];
     const WCHAR *message = L"服务器请求失败；可重试";
     switch (status) {
-    case 401: message = L"认证失败；此客户端不保存 Token，私有仓库请使用已签名本地更新"; break;
-    case 403: message = L"访问被拒绝或 API 配额耗尽；不能据此判定没有 Release"; break;
-    case 404: message = L"资源不存在、私有不可见或路径错误；不能据此判定已是最新版"; break;
-    case 407: message = L"代理要求身份验证；请检查当前 Windows 代理，程序不会修改它"; break;
-    case 429: message = L"GitHub 请求受限，请按 Retry-After / Reset 稍后重试"; break;
+    case 401:
+        message = L"认证失败；此客户端不保存 Token，私有仓库请使用已签名本地更新";
+        break;
+    case 403:
+        message = L"访问被拒绝或 API 配额耗尽；不能据此判定没有 Release";
+        break;
+    case 404:
+        message = L"资源不存在、私有不可见或路径错误；不能据此判定已是最新版";
+        break;
+    case 407:
+        message = L"代理要求身份验证；请检查当前 Windows 代理，程序不会修改它";
+        break;
+    case 429:
+        message = L"GitHub 请求受限，请按 Retry-After / Reset 稍后重试";
+        break;
     }
     swprintf_s(reason, 256, L"HTTP %lu：%s。Retry-After=%s；Reset=%s", status, message,
                retry && *retry ? retry : L"未提供", reset && *reset ? reset : L"未提供");
@@ -29,16 +44,26 @@ static void http_error(NP_ERROR *e, DWORD status, const WCHAR *retry, const WCHA
 }
 static const WCHAR *network_reason(DWORD code) {
     switch (code) {
-    case ERROR_CANCELLED: return L"更新已取消，可重新检查或下载";
-    case ERROR_TIMEOUT: case ERROR_WINHTTP_TIMEOUT: return L"HTTPS 请求超时，请检查当前网络或代理后重试";
-    case ERROR_WINHTTP_NAME_NOT_RESOLVED: return L"DNS 无法解析 GitHub 或代理主机；尚未获得 Release 响应";
-    case ERROR_WINHTTP_SECURE_FAILURE: return L"TLS 证书验证失败；已阻止下载，不会绕过证书验证";
-    case ERROR_WINHTTP_CANNOT_CONNECT: case ERROR_WINHTTP_CONNECTION_ERROR:
+    case ERROR_CANCELLED:
+        return L"更新已取消，可重新检查或下载";
+    case ERROR_TIMEOUT:
+    case ERROR_WINHTTP_TIMEOUT:
+        return L"HTTPS 请求超时，请检查当前网络或代理后重试";
+    case ERROR_WINHTTP_NAME_NOT_RESOLVED:
+        return L"DNS 无法解析 GitHub 或代理主机；尚未获得 Release 响应";
+    case ERROR_WINHTTP_SECURE_FAILURE:
+        return L"TLS 证书验证失败；已阻止下载，不会绕过证书验证";
+    case ERROR_WINHTTP_CANNOT_CONNECT:
+    case ERROR_WINHTTP_CONNECTION_ERROR:
         return L"无法连接或连接中断；使用 Windows 自动代理，请检查网络、TUN 和代理后重试";
-    case ERROR_WINHTTP_AUTODETECTION_FAILED: case ERROR_WINHTTP_BAD_AUTO_PROXY_SCRIPT:
-    case ERROR_WINHTTP_UNABLE_TO_DOWNLOAD_SCRIPT: return L"Windows 自动代理检测或 PAC 脚本失败，请检查代理后重试";
-    case ERROR_FILE_TOO_LARGE: return L"下载超过允许大小，已阻止更新";
-    default: return L"HTTPS 或缓存操作失败；请参考 Windows 错误代码后重试";
+    case ERROR_WINHTTP_AUTODETECTION_FAILED:
+    case ERROR_WINHTTP_BAD_AUTO_PROXY_SCRIPT:
+    case ERROR_WINHTTP_UNABLE_TO_DOWNLOAD_SCRIPT:
+        return L"Windows 自动代理检测或 PAC 脚本失败，请检查代理后重试";
+    case ERROR_FILE_TOO_LARGE:
+        return L"下载超过允许大小，已阻止更新";
+    default:
+        return L"HTTPS 或缓存操作失败；请参考 Windows 错误代码后重试";
     }
 }
 #ifdef NP_READONLY_BUILD
@@ -62,6 +87,8 @@ static BOOL fixture_request(const WCHAR *url, BOOL asset, BYTE **memory, DWORD *
     }
     if (!asset) {
         const char *json = repo ? np_http_fixture.repo_json : np_http_fixture.json;
+        if (np_http_fixture.private_api && wcsstr(url, L"/releases?"))
+            json = "[]";
         size_t n = strlen(json);
         *memory = malloc(n);
         if (!*memory)
@@ -72,6 +99,12 @@ static BOOL fixture_request(const WCHAR *url, BOOL asset, BYTE **memory, DWORD *
     }
     WCHAR path[NP_PATH];
     swprintf_s(path, NP_PATH, L"%s%s", np_http_fixture.exe, wcsstr(url, L".exe.update") ? L".update" : L"");
+    if (np_http_fixture.private_api) {
+        const WCHAR *name = wcsstr(url, L"/assets/1")   ? NP_PACKAGE
+                            : wcsstr(url, L"/assets/2") ? NP_PACKAGE_JSON
+                                                        : NP_PACKAGE_JSON L".update";
+        swprintf_s(path, NP_PATH, L"%s\\%s", np_http_fixture.exe, name);
+    }
     HANDLE in = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
     if (in == INVALID_HANDLE_VALUE)
         return FALSE;
@@ -159,8 +192,8 @@ BOOL np_asset_url(const WCHAR *url, const NP_UPDATE_SETTINGS *s, const WCHAR *ta
     DWORD v[4];
     if (!np_repo_valid(s->owner, s->repo) || !np_semver(tag, v))
         return FALSE;
-    if (wcscmp(name, APP_ASSET) && wcscmp(name, APP_ASSET L".update") &&
-        wcscmp(name, SETUP_ASSET) && wcscmp(name, SETUP_ASSET L".update"))
+    if (wcscmp(name, APP_ASSET) && wcscmp(name, APP_ASSET L".update") && wcscmp(name, SETUP_ASSET) &&
+        wcscmp(name, SETUP_ASSET L".update"))
         return FALSE;
     return swprintf_s(expected, 2048, L"https://github.com/%s/%s/releases/download/%s/%s", s->owner, s->repo,
                       tag, name) > 0 &&
@@ -262,9 +295,9 @@ invalid:
     return FALSE;
 }
 /* Each request is synchronous on a worker. Redirects are explicitly limited to GitHub's asset CDN. */
-static BOOL request(const WCHAR *initial, BOOL asset, BYTE **memory, DWORD *length, HANDLE file,
-                    ULONGLONG limit, volatile LONG *cancel, NP_DOWNLOAD_PROGRESS progress, void *context,
-                    NP_ERROR *e) {
+static BOOL request_impl(const WCHAR *initial, BOOL asset, BYTE **memory, DWORD *length, HANDLE file,
+                         ULONGLONG limit, volatile LONG *cancel, NP_DOWNLOAD_PROGRESS progress, void *context,
+                         NP_ERROR *e, const WCHAR *token) {
 #ifdef NP_READONLY_BUILD
     if (np_http_fixture.active)
         return fixture_request(initial, asset, memory, length, file, limit, cancel, progress, context, e);
@@ -278,8 +311,8 @@ static BOOL request(const WCHAR *initial, BOOL asset, BYTE **memory, DWORD *leng
     DWORD used = 0, capacity = 0;
     ULONGLONG total = 0;
     ULONGLONG deadline = GetTickCount64() + 240000;
-    session = WinHttpOpen(L"NetPilotLite/" NP_VERSION, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
-                          WINHTTP_NO_PROXY_BYPASS, 0);
+    session = WinHttpOpen(L"NetPilotLite/" NP_VERSION, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                          WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session)
         goto done;
     if (!WinHttpSetTimeouts(session, 5000, 10000, 15000, 20000))
@@ -311,14 +344,28 @@ static BOOL request(const WCHAR *initial, BOOL asset, BYTE **memory, DWORD *leng
                                  WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
         if (!req)
             goto done;
-        DWORD disabled = WINHTTP_DISABLE_REDIRECTS, autologon = WINHTTP_AUTOLOGON_SECURITY_LEVEL_HIGH;
+        DWORD disabled = WINHTTP_DISABLE_REDIRECTS | WINHTTP_DISABLE_COOKIES,
+              autologon = WINHTTP_AUTOLOGON_SECURITY_LEVEL_HIGH;
         if (!WinHttpSetOption(req, WINHTTP_OPTION_DISABLE_FEATURE, &disabled, sizeof(disabled)) ||
             !WinHttpSetOption(req, WINHTTP_OPTION_AUTOLOGON_POLICY, &autologon, sizeof(autologon)))
             goto done;
-        const WCHAR *headers = L"Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\n";
-        if (!WinHttpSendRequest(req, asset ? WINHTTP_NO_ADDITIONAL_HEADERS : headers, asset ? 0 : (DWORD)-1,
-                                WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
-            !WinHttpReceiveResponse(req, NULL))
+        WCHAR headers[1024];
+        BOOL api = !_wcsicmp(host, L"api.github.com");
+        swprintf_s(headers, _countof(headers), L"Accept: %s\r\nX-GitHub-Api-Version: 2022-11-28\r\n",
+                   asset ? L"application/octet-stream" : L"application/vnd.github+json");
+        if (api && token && *token) {
+            wcscat_s(headers, _countof(headers), L"Authorization: Bearer ");
+            wcscat_s(headers, _countof(headers), token);
+            wcscat_s(headers, _countof(headers), L"\r\n");
+        }
+        BOOL sent = WinHttpSendRequest(req, headers, (DWORD)-1, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
+        DWORD send_error = GetLastError();
+        SecureZeroMemory(headers, sizeof(headers));
+        if (!sent) {
+            SetLastError(send_error);
+            goto done;
+        }
+        if (!WinHttpReceiveResponse(req, NULL))
             goto done;
         DWORD status = 0, n = sizeof(status);
         if (!WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, NULL, &status,
@@ -399,7 +446,8 @@ done:
     if (!ok && !e->win32) {
         DWORD last = GetLastError();
         DWORD code = error != ERROR_GEN_FAILURE ? error : last ? last : error;
-        if (cancel && InterlockedCompareExchange(cancel, 0, 0)) code = ERROR_CANCELLED;
+        if (cancel && InterlockedCompareExchange(cancel, 0, 0))
+            code = ERROR_CANCELLED;
         np_error(e, code, 0, network_reason(code));
     }
     if (req)
@@ -413,6 +461,32 @@ done:
         *length = used;
     } else
         free(bytes);
+    return ok;
+}
+static BOOL request(const WCHAR *initial, BOOL asset, BYTE **memory, DWORD *length, HANDLE file,
+                    ULONGLONG limit, volatile LONG *cancel, NP_DOWNLOAD_PROGRESS progress, void *context,
+                    NP_ERROR *e) {
+    return request_impl(initial, asset, memory, length, file, limit, cancel, progress, context, e, NULL);
+}
+BOOL np_private_http(const NP_UPDATE_SETTINGS *s, const WCHAR *token, const WCHAR *url, BOOL asset,
+                     BYTE **memory, DWORD *length, HANDLE file, ULONGLONG limit, volatile LONG *cancel,
+                     NP_DOWNLOAD_PROGRESS progress, void *context, NP_ERROR *e) {
+    WCHAR prefix[400];
+    if (!np_repo_valid(s->owner, s->repo) || !np_token_valid(token)) {
+        np_error(e, ERROR_LOGON_FAILURE, 0, L"请重新授权有效的 Fine-grained Token");
+        return FALSE;
+    }
+    swprintf_s(prefix, 400, L"https://api.github.com/repos/%s/%s", s->owner, s->repo);
+    size_t n = wcslen(prefix);
+    if (wcsncmp(url, prefix, n) || (url[n] && url[n] != L'/') || wcschr(url, L'\\') || wcschr(url, L'#')) {
+        np_error(e, ERROR_ACCESS_DENIED, 0, L"授权仅可发送到已配置仓库的 GitHub API");
+        return FALSE;
+    }
+    BOOL ok = request_impl(url, asset, memory, length, file, limit, cancel, progress, context, e, token);
+    if (!ok && e->http_status == 401) {
+        np_error(e, ERROR_LOGON_FAILURE, 0, L"GitHub 授权无效、过期或已撤销，请重新授权");
+        e->http_status = 401;
+    }
     return ok;
 }
 BOOL np_online_check(const NP_UPDATE_SETTINGS *s, NP_ONLINE_RELEASE *r, volatile LONG *cancel, NP_ERROR *e) {
@@ -432,17 +506,20 @@ BOOL np_online_check(const NP_UPDATE_SETTINGS *s, NP_ONLINE_RELEASE *r, volatile
         if (e->http_status == 404) {
             NP_ERROR probe = {0};
             swprintf_s(url, 512, L"https://api.github.com/repos/%s/%s", s->owner, s->repo);
-            if (request(url, FALSE, &bytes, &n, INVALID_HANDLE_VALUE, 1024 * 1024, cancel, NULL, NULL, &probe)) {
+            if (request(url, FALSE, &bytes, &n, INVALID_HANDLE_VALUE, 1024 * 1024, cancel, NULL, NULL,
+                        &probe)) {
                 NP_JSON j;
                 if (np_json_parse(&j, (char *)bytes, n)) {
                     if (j.tokens[0].type == '{' && np_json_false(&j, np_json_field(&j, 0, "private"))) {
-                        np_error(e, ERROR_NOT_FOUND, 0, L"尚无可用发布版本：公开仓库可访问，但 latest 没有稳定版");
+                        np_error(e, ERROR_NOT_FOUND, 0,
+                                 L"尚无可用发布版本：公开仓库可访问，但 latest 没有稳定版");
                         e->http_status = 404;
                     }
                     np_json_free(&j);
                 }
                 free(bytes);
-            } else if (probe.win32 == ERROR_CANCELLED) *e = probe;
+            } else if (probe.win32 == ERROR_CANCELLED)
+                *e = probe;
         }
         return FALSE;
     }
@@ -453,7 +530,8 @@ BOOL np_online_check(const NP_UPDATE_SETTINGS *s, NP_ONLINE_RELEASE *r, volatile
 BOOL np_online_verify(const WCHAR *path, const NP_ONLINE_RELEASE *r, NP_ERROR *e) {
     NP_RELEASE signed_release;
     DWORD current[4] = {NP_VERSION_NUM};
-    if (!(r->installer ? np_verify_installer(path, &signed_release, e) : np_verify_release(path, &signed_release, e)))
+    if (!(r->installer ? np_verify_installer(path, &signed_release, e)
+                       : np_verify_release(path, &signed_release, e)))
         return FALSE;
     if (memcmp(signed_release.version, r->version, sizeof(r->version)) || signed_release.size != r->size ||
         np_version_compare(signed_release.version, current) < (r->installer ? 0 : 1)) {
@@ -480,7 +558,8 @@ BOOL np_online_transport_probe(NP_ERROR *e) {
     volatile LONG cancel = 0;
     ZeroMemory(e, sizeof(*e));
     if (!request(L"https://api.github.com/repos/cli/cli/releases/latest", FALSE, &bytes, &n,
-                 INVALID_HANDLE_VALUE, 1024 * 1024, &cancel, NULL, NULL, e)) return FALSE;
+                 INVALID_HANDLE_VALUE, 1024 * 1024, &cancel, NULL, NULL, e))
+        return FALSE;
     NP_JSON j;
     WCHAR tag[64], name[128], url[512];
     DWORD version[4];
@@ -496,17 +575,23 @@ BOOL np_online_transport_probe(NP_ERROR *e) {
                 for (int i = assets + 1; i < j.tokens[assets].next; i = j.tokens[i].next) {
                     WCHAR item[128], location[512];
                     if (strfield(&j, i, "name", item, 128) && !wcscmp(item, name) &&
-                        strfield(&j, i, "browser_download_url", location, 512) && !wcscmp(location, url)) found = TRUE;
+                        strfield(&j, i, "browser_download_url", location, 512) && !wcscmp(location, url))
+                        found = TRUE;
                 }
         }
         np_json_free(&j);
     }
-    free(bytes); bytes = NULL;
-    if (!ok || !found) { np_error(e, ERROR_INVALID_DATA, 0, L"Public diagnostic checksum asset missing"); return FALSE; }
+    free(bytes);
+    bytes = NULL;
+    if (!ok || !found) {
+        np_error(e, ERROR_INVALID_DATA, 0, L"Public diagnostic checksum asset missing");
+        return FALSE;
+    }
     ok = request(url, TRUE, &bytes, &n, INVALID_HANDLE_VALUE, 65536, &cancel, NULL, NULL, e);
     if (ok) {
         ok = n > 0;
-        wprintf(L"Real public API + HTTPS asset/CDN download: %s, %lu bytes; text only, no execution.\n", name, n);
+        wprintf(L"Real public API + HTTPS asset/CDN download: %s, %lu bytes; text only, no execution.\n",
+                name, n);
     }
     free(bytes);
     return ok;
@@ -569,7 +654,9 @@ BOOL np_online_download(const NP_ONLINE_RELEASE *r, const NP_UPDATE_SETTINGS *s,
     if (!request(r->signature_url, TRUE, &manifest, &bytes, INVALID_HANDLE_VALUE, sizeof(NP_RELEASE), cancel,
                  NULL, NULL, e))
         goto fail;
-    BOOL valid = bytes == sizeof(NP_RELEASE) && (r->installer ? np_installer_signature((NP_RELEASE *)manifest) : np_release_signature((NP_RELEASE *)manifest)) &&
+    BOOL valid = bytes == sizeof(NP_RELEASE) &&
+                 (r->installer ? np_installer_signature((NP_RELEASE *)manifest)
+                               : np_release_signature((NP_RELEASE *)manifest)) &&
                  !memcmp(((NP_RELEASE *)manifest)->version, r->version, sizeof(r->version)) &&
                  ((NP_RELEASE *)manifest)->size == r->size;
     if (!valid) {
@@ -646,12 +733,17 @@ BOOL np_installer_launch(const WCHAR *path, HANDLE *process, NP_ERROR *e) {
     sei.nShow = SW_SHOWNORMAL;
     if (ok) {
         ok = ShellExecuteExW(&sei);
-        if (!ok) np_error(e, GetLastError(), 0, L"Start trusted Offline Setup / UAC cancelled");
+        if (!ok)
+            np_error(e, GetLastError(), 0, L"Start trusted Offline Setup / UAC cancelled");
     }
-    if (lock != INVALID_HANDLE_VALUE) CloseHandle(lock);
+    if (lock != INVALID_HANDLE_VALUE)
+        CloseHandle(lock);
     if (ok) {
-        if (process) *process = sei.hProcess;
-        else CloseHandle(sei.hProcess);
-    } else if (!e->win32) np_error(e, GetLastError(), 0, L"Lock installer for verification");
+        if (process)
+            *process = sei.hProcess;
+        else
+            CloseHandle(sei.hProcess);
+    } else if (!e->win32)
+        np_error(e, GetLastError(), 0, L"Lock installer for verification");
     return ok;
 }

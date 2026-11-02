@@ -1,8 +1,14 @@
-# NetPilot Lite 1.3.1 · 发布与更新修复候选
+# NetPilot Lite 1.4.0 · 私有 GitHub 更新
 
-本版修复 GitHub 状态诊断、缺失安装资产提示、更新重试，以及签名发布前的资产回读验证。已在 Windows 编译和测试；**尚未正式发布，尚未完成真实在线安装闭环**。当前 `AcerGL/NetPilotLite` 为私有仓库且没有 Release，匿名客户端暂不能更新。
+私有仓库授权、DPAPI CurrentUser 加密保存、每个 Windows 开机周期后台检查、签名 ZIP 下载和独立更新器原地替换。保留 Princess 主题、托盘、网络控制及分流功能；不生成 Web Setup。
 
-详见 [本次验收报告](docs/RELEASE_CLOSURE_1.3.1.md) 和 [发布步骤](docs/RELEASE.md)。源码提交与普通 CI 构建不会创建正式 Release。
+**本地构建和分层测试通过；真实私有 Release 在线升级尚待 Token、可信签名 Secrets 和正式 Release。**
+
+使用说明：[私有更新与首次授权](docs/PRIVATE_UPDATES.md)。结果：[本次测试报告](docs/PRIVATE_UPDATE_TEST_REPORT.md)。
+
+当前 GUI 普通权限启动，网卡操作时按需申请 UAC。开机登录只进托盘，不改变任何网卡状态。配置保留在 `%LOCALAPPDATA%\NetPilotLite\`。正式更新资产只在 `dist/update/`；首次安装器单独为 `dist/NetPilotLite-Setup-x64.exe`。
+
+下列为旧版本历史，涉及匿名更新、Web Setup 和整包更新的说明已由 1.4.0 文档替代。
 
 ## 1.3.0 安装分发基础
 

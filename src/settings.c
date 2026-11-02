@@ -5,6 +5,7 @@
 void np_settings_defaults(NP_SETTINGS *s) {
     ZeroMemory(s, sizeof(*s));
     s->schema = 2;
+    s->update.startup = TRUE;
     wcscpy_s(s->update.owner, 100, NP_GITHUB_OWNER);
     wcscpy_s(s->update.repo, 100, NP_GITHUB_REPO);
     wcscpy_s(s->update.channel, 16, L"Stable");
@@ -136,7 +137,7 @@ BOOL np_settings_load(NP_SETTINGS *s, const WCHAR *dir, NP_ERROR *e) {
     GetPrivateProfileStringW(L"Update", L"Owner", NP_GITHUB_OWNER, s->update.owner, 100, p);
     GetPrivateProfileStringW(L"Update", L"Repository", NP_GITHUB_REPO, s->update.repo, 100, p);
     GetPrivateProfileStringW(L"Update", L"LastCheck", L"", s->update.last_check, 40, p);
-    s->update.startup = GetPrivateProfileIntW(L"Update", L"CheckOnStartup", 0, p) == 1;
+    s->update.startup = GetPrivateProfileIntW(L"Update", L"CheckOnStartup", 1, p) == 1;
     s->tray_density = ranged(p, L"TrayDensity", 0, 0, 1);
     s->tray_accent = (COLORREF)integer(p, L"TrayAccent", (int)s->tray_accent) & 0xffffff;
     s->rule_count = (int)GetPrivateProfileIntW(L"RoutingObservation", L"Count", 0, p);

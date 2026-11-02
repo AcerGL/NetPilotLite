@@ -5,8 +5,8 @@
 201 RCDATA "../assets/update-key.bin"
 202 RCDATA "../bin/Release/NetPilotLite.Updater.exe"
 1 VERSIONINFO
- FILEVERSION 1,3,1,0
- PRODUCTVERSION 1,3,1,0
+ FILEVERSION 1,4,0,0
+ PRODUCTVERSION 1,4,0,0
  FILEFLAGSMASK 0x3fL
  FILEFLAGS 0
  FILEOS VOS_NT_WINDOWS32
@@ -18,8 +18,8 @@ BEGIN
   BEGIN
    VALUE "FileDescription", "NetPilot Lite - Ethernet Switch\0"
    VALUE "ProductName", "NetPilot Lite\0"
-   VALUE "FileVersion", "1.3.1.0\0"
-   VALUE "ProductVersion", "1.3.1.0\0"
+   VALUE "FileVersion", "1.4.0.0\0"
+   VALUE "ProductVersion", "1.4.0.0\0"
    VALUE "OriginalFilename", "NetPilotLite.exe\0"
   END
  END

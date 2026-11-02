@@ -24,7 +24,7 @@ set "CLFLAGS=/nologo /TC /std:c17 /utf-8 /W4 /O2 /MT /GS /guard:cf /D_WIN32_WINN
 if not exist artifacts\update-fixtures mkdir artifacts\update-fixtures
 for %%d in (old prior new fail) do if not exist artifacts\update-fixtures\%%d mkdir artifacts\update-fixtures\%%d
 if not exist obj\update-tests mkdir obj\update-tests
-set "LIBS=user32.lib gdi32.lib shell32.lib advapi32.lib setupapi.lib cfgmgr32.lib iphlpapi.lib wtsapi32.lib ole32.lib comctl32.lib dwmapi.lib uxtheme.lib windowscodecs.lib uuid.lib msimg32.lib wlanapi.lib ws2_32.lib comdlg32.lib version.lib bcrypt.lib shlwapi.lib propsys.lib winhttp.lib"
+set "LIBS=user32.lib gdi32.lib shell32.lib advapi32.lib setupapi.lib cfgmgr32.lib iphlpapi.lib wtsapi32.lib ole32.lib comctl32.lib dwmapi.lib uxtheme.lib windowscodecs.lib uuid.lib msimg32.lib wlanapi.lib ws2_32.lib comdlg32.lib version.lib bcrypt.lib shlwapi.lib propsys.lib winhttp.lib crypt32.lib"
 rc /nologo /c65001 /I tests\resources /fo obj\old-fixture.res tests\resources\old.rc
 if errorlevel 1 exit /b 1
 rc /nologo /c65001 /I tests\resources /fo obj\prior-fixture.res tests\resources\prior.rc
@@ -39,7 +39,7 @@ cl %CLFLAGS% /DNP_READONLY_BUILD /I tests\legacy /Foobj\update-tests\ /Feartifac
 if errorlevel 1 exit /b 1
 cl %CLFLAGS% /DNP_READONLY_BUILD /DNP_MOCK_PRODUCT /I tests\prior /Foobj\update-tests\ /Feartifacts\update-fixtures\prior\NetPilotLite.exe tests\prior\main.c tests\prior\app.c tests\prior\core.c tests\prior\backend_win.c tests\prior\mock.c tests\prior\settings.c tests\prior\visual.c tests\prior\trust.c tests\prior\update_launch.c /link obj\prior-fixture.res /MANIFEST:NO /SUBSYSTEM:WINDOWS %LIBS%
 if errorlevel 1 exit /b 1
-cl %CLFLAGS% /DNP_READONLY_BUILD /DNP_MOCK_PRODUCT /Foobj\update-tests\ /Feartifacts\update-fixtures\new\NetPilotLite.exe src\main.c src\app.c src\core.c src\backend_win.c src\mock.c src\settings.c src\routing.c src\apps.c src\online.c src\json.c src\visual.c src\trust.c src\update_launch.c /link obj\new-fixture.res /MANIFEST:NO /SUBSYSTEM:WINDOWS %LIBS%
+cl %CLFLAGS% /DNP_READONLY_BUILD /DNP_MOCK_PRODUCT /Foobj\update-tests\ /Feartifacts\update-fixtures\new\NetPilotLite.exe src\main.c src\app.c src\core.c src\backend_win.c src\mock.c src\settings.c src\routing.c src\apps.c src\online.c src\private_auth.c src\private_update.c src\json.c src\visual.c src\trust.c src\update_launch.c /link obj\new-fixture.res /MANIFEST:NO /SUBSYSTEM:WINDOWS %LIBS%
 if errorlevel 1 exit /b 1
 cl %CLFLAGS% /Foobj\update-tests\ /Feartifacts\update-fixtures\fail\NetPilotLite.exe tests\fixture_fail.c /link obj\fail-fixture.res /MANIFEST:NO /SUBSYSTEM:WINDOWS %LIBS%
 if errorlevel 1 exit /b 1

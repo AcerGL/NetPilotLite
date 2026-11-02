@@ -6,7 +6,7 @@ static SETTING_CELL cells[160];
 static int cell_count;
 static const WCHAR *pages[] = {L"通用",     L"网络适配器",   L"快捷操作", L"外观",
                                L"系统托盘", L"应用网络分流", L"更新",     L"关于"};
-static const int page_height[] = {290, 360, 300, 920, 740, 968, 880, 360};
+static const int page_height[] = {290, 360, 300, 920, 740, 968, 1190, 360};
 static int sp(int v) {
     return MulDiv(v, (int)a.settings_dpi, 96);
 }

@@ -21,7 +21,7 @@ if not exist obj\app mkdir obj\app
 if not exist obj\tests mkdir obj\tests
 if not exist artifacts mkdir artifacts
 set "CLFLAGS=/nologo /TC /std:c17 /utf-8 /W4 /O2 /MT /GS /guard:cf /D_WIN32_WINNT=0x0A00 /I src"
-cl %CLFLAGS% /Foobj\app\ /Febin\Release\ReleaseTool.exe tools\release.c src\trust.c src\core.c /link /SUBSYSTEM:CONSOLE bcrypt.lib crypt32.lib version.lib user32.lib
+cl %CLFLAGS% /Foobj\app\ /Febin\Release\ReleaseTool.exe tools\release.c src\trust.c src\core.c src\json.c /link /SUBSYSTEM:CONSOLE bcrypt.lib crypt32.lib version.lib user32.lib
 if errorlevel 1 exit /b 1
 cl %CLFLAGS% /Foobj\app\ /Febin\Release\IconTool.exe tools\icon.c src\visual.c /link /SUBSYSTEM:CONSOLE windowscodecs.lib ole32.lib uuid.lib gdi32.lib msimg32.lib advapi32.lib user32.lib
 if errorlevel 1 exit /b 1

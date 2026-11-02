@@ -10,8 +10,6 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NetPilotLite.Updater", "Net
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NetPilotLite.InstallGuard", "NetPilotLite.InstallGuard.vcxproj", "{DAEF2E2C-9FD0-448D-A389-3EBB4923BA45}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NetPilotLite.WebSetup", "NetPilotLite.WebSetup.vcxproj", "{8EA1B03A-9D31-4AF7-814F-158CE732BF79}"
-EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NetPilotLite.DualEgress", "NetPilotLite.DualEgress.vcxproj", "{B00E479D-10EC-4371-9AFB-160B83732436}"
 EndProject
 Global
@@ -24,10 +22,6 @@ Global
   {B00E479D-10EC-4371-9AFB-160B83732436}.Debug|x64.Build.0 = Debug|x64
   {B00E479D-10EC-4371-9AFB-160B83732436}.Release|x64.ActiveCfg = Release|x64
   {B00E479D-10EC-4371-9AFB-160B83732436}.Release|x64.Build.0 = Release|x64
-  {8EA1B03A-9D31-4AF7-814F-158CE732BF79}.Debug|x64.ActiveCfg = Debug|x64
-  {8EA1B03A-9D31-4AF7-814F-158CE732BF79}.Debug|x64.Build.0 = Debug|x64
-  {8EA1B03A-9D31-4AF7-814F-158CE732BF79}.Release|x64.ActiveCfg = Release|x64
-  {8EA1B03A-9D31-4AF7-814F-158CE732BF79}.Release|x64.Build.0 = Release|x64
   {DAEF2E2C-9FD0-448D-A389-3EBB4923BA45}.Debug|x64.ActiveCfg = Debug|x64
   {DAEF2E2C-9FD0-448D-A389-3EBB4923BA45}.Debug|x64.Build.0 = Debug|x64
   {DAEF2E2C-9FD0-448D-A389-3EBB4923BA45}.Release|x64.ActiveCfg = Release|x64

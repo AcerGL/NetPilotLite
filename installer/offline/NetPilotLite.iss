@@ -1,5 +1,5 @@
 #ifndef ProductVersion
-#define ProductVersion "1.3.1"
+#define ProductVersion "1.4.0"
 #endif
 ; IMMUTABLE: change only for a different product, never for an upgrade.
 #define ProductId "{C47B553D-22CE-4CDD-BA10-2930FC8266D4}"
@@ -26,7 +26,7 @@ WizardSmallImageFile=small.bmp
 SetupIconFile=..\..\assets\NetPilotLite.ico
 UninstallDisplayIcon={app}\NetPilotLite.exe
 OutputDir=..\..\dist
-OutputBaseFilename=NetPilotLite-Offline-Setup
+OutputBaseFilename=NetPilotLite-Setup-x64
 VersionInfoVersion={#ProductVersion}.0
 VersionInfoProductName=NetPilot Lite Offline Setup
 VersionInfoProductVersion={#ProductVersion}.0
@@ -57,7 +57,7 @@ Source: "..\..\assets\NOTICE.md"; DestDir: "{app}"; DestName: "ASSET-NOTICE.md";
 Name: "{autoprograms}\NetPilot Lite"; Filename: "{app}\NetPilotLite.exe"; WorkingDir: "{app}"
 Name: "{autodesktop}\NetPilot Lite"; Filename: "{app}\NetPilotLite.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 [Run]
-Filename: "{app}\NetPilotLite.exe"; Description: "{cm:LaunchProgram,NetPilot Lite}"; Flags: nowait postinstall skipifsilent runascurrentuser
+Filename: "{app}\NetPilotLite.exe"; Description: "{cm:LaunchProgram,NetPilot Lite}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 [CustomMessages]
 en.Scope=Only program files are installed. Network adapters, proxies and user settings are not changed.
 zhcn.Scope=只部署程序文件，不修改网卡、代理、主题、背景或用户设置。

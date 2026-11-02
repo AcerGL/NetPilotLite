@@ -45,6 +45,8 @@
     <ClCompile Include="src\routing.c" />
     <ClCompile Include="src\apps.c" />
     <ClCompile Include="src\online.c" />
+    <ClCompile Include="src\private_auth.c" />
+    <ClCompile Include="src\private_update.c" />
     <ClCompile Include="src\json.c" />
     <ClCompile Include="src\trust.c" />
     <ClCompile Include="src\update_launch.c" />
@@ -53,6 +55,9 @@
     <ClInclude Include="src\lite.h" />
     <ClInclude Include="src\apps.h" />
     <ClInclude Include="src\online.h" />
+    <ClInclude Include="src\private_update.h" />
+    <ClInclude Include="src\repository.h" />
+    <ClInclude Include="src\ui_update_prompt.inc" />
     <ClInclude Include="src\json.h" />
     <ClInclude Include="src\ui_picker.inc" />
     <ClInclude Include="src\ui_online.inc" />

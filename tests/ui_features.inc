@@ -133,6 +133,14 @@ static void feature_ui_tick(void) {
     }
     RedrawWindow(a.settings, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
     capture_window(a.settings, L"artifacts\\v120-update.bmp");
+    FUI(GetDlgItem(a.settings_content,621)!=NULL);
+    FUI(GetWindowLongPtrW(GetDlgItem(a.settings_content,620),GWL_STYLE)&ES_PASSWORD);
+    wcscpy_s(online.release.published,64,L"2026-11-02T00:00:00Z");online.release.size=5*1024*1024;
+    wcscpy_s(online.release.body,16384,L"# NetPilot Lite 2.0.0 · 模拟更新\n\n• 私有仓库加密授权\n• 每次开机检查一次\n• 自动下载、验证签名与原地替换\n\n保留绑定、主题、背景及分流设置。此窗口用于界面验收。");
+    update_prompt();FUI(IsWindow(update_notice));
+    RedrawWindow(update_notice,NULL,NULL,RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_UPDATENOW);
+    capture_window(update_notice,L"artifacts\\private-update\\update-prompt.bmp");
+    SendMessageW(update_notice,WM_COMMAND,2,0);FUI(update_notice==NULL);
     FUI(a.mock_data.writes == 0);
     wprintf(L"Feature GUI: %d checks, %d failures; DPI/layout simulation, picker async/filter/dedup/close, "
             L"mock update close; writes=%u.\n",

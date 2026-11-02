@@ -152,9 +152,13 @@ static void run_tests(void) {
 }
 #include "routing_tests.inc"
 #include "features_tests.inc"
+#include "private_tests.inc"
 #include "installer_tests.inc"
 int wmain(int argc, WCHAR **argv) {
     _setmode(_fileno(stdout), _O_U8TEXT);
+    if(argc==2&&!wcscmp(argv[1],L"--private-tests"))return private_tests();
+    if(argc==3&&!wcscmp(argv[1],L"--package-test"))return package_test(argv[2]);
+    if(argc==3&&!wcscmp(argv[1],L"--private-download-test"))return private_download_test(argv[2]);
     if (argc == 3 && !wcscmp(argv[1], L"--installer-tests")) return installer_tests(argv[2]);
     if (argc == 3 && !wcscmp(argv[1], L"--verify-catalog")) {
         NP_RELEASE r; BYTE hash[32]; WCHAR side[NP_PATH];

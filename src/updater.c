@@ -4,6 +4,7 @@
 #include <objbase.h>
 #include <stdio.h>
 #include <wchar.h>
+#include <sddl.h>
 typedef struct JOURNAL {
     DWORD magic, phase, baseline;
     NP_RELEASE old_release, new_release;
@@ -450,6 +451,43 @@ done:
     return (int)failure;
 }
 #ifndef NP_UPDATE_LIBRARY
+static BOOL current_sid(WCHAR out[192]) {
+    HANDLE token;
+    BYTE bytes[512];
+    DWORD size = 0;
+    PWSTR sid = NULL;
+    BOOL ok = FALSE;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+        return FALSE;
+    if (GetTokenInformation(token, TokenUser, bytes, sizeof(bytes), &size) &&
+        ConvertSidToStringSidW(((TOKEN_USER *)bytes)->User.Sid, &sid)) {
+        ok = wcslen(sid) < 192;
+        if (ok)
+            wcscpy_s(out, 192, sid);
+        LocalFree(sid);
+    }
+    CloseHandle(token);
+    return ok;
+}
+static BOOL directory_writable(const WCHAR *target) {
+    WCHAR dir[NP_PATH];
+    if (wcslen(target) >= NP_PATH)
+        return FALSE;
+    wcscpy_s(dir, NP_PATH, target);
+    WCHAR *slash = wcsrchr(dir, L'\\');
+    if (!slash)
+        return FALSE;
+    *slash = 0;
+    HANDLE f = CreateFileW(dir, FILE_ADD_FILE | FILE_DELETE_CHILD,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+                           FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    if (f == INVALID_HANDLE_VALUE)
+        return FALSE;
+    BY_HANDLE_FILE_INFORMATION info;
+    BOOL ok = GetFileInformationByHandle(f, &info) && !(info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT);
+    CloseHandle(f);
+    return ok;
+}
 static BOOL is_admin(void) {
     SID_IDENTIFIER_AUTHORITY auth = SECURITY_NT_AUTHORITY;
     PSID group = NULL;
@@ -487,12 +525,17 @@ static BOOL elevate_arguments(int n, WCHAR **args, DWORD *result) {
         *result = NP_SIGNATURE_ERROR;
         return FALSE;
     }
-    WCHAR self[NP_PATH], parameters[NP_PATH * 2 + 50];
+    WCHAR self[NP_PATH], parameters[NP_PATH * 2 + 300], sid[192];
+    if (!current_sid(sid)) {
+        *result = ERROR_ACCESS_DENIED;
+        return FALSE;
+    }
     GetModuleFileNameW(NULL, self, _countof(self));
     if (recovery)
-        swprintf_s(parameters, _countof(parameters), L"--recover \"%s\"", p.target);
+        swprintf_s(parameters, _countof(parameters), L"--recover \"%s\" --elevated-for %s", p.target, sid);
     else
-        swprintf_s(parameters, _countof(parameters), L"--apply \"%s\" \"%s\"", args[2], p.target);
+        swprintf_s(parameters, _countof(parameters), L"--apply \"%s\" \"%s\" --elevated-for %s", args[2],
+                   p.target, sid);
     SHELLEXECUTEINFOW se = {0};
     se.cbSize = sizeof(se);
     se.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
@@ -518,9 +561,21 @@ int WINAPI wWinMain(HINSTANCE i, HINSTANCE prev, PWSTR cmd, int show) {
     WCHAR **args = CommandLineToArgvW(GetCommandLineW(), &n);
     int result = ERROR_INVALID_PARAMETER;
     SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (args && (n == 5 || n == 6) && !wcscmp(args[n - 2], L"--elevated-for")) {
+        WCHAR sid[192];
+        if (!is_admin() || !current_sid(sid) || wcscmp(sid, args[n - 1])) {
+            MessageBoxW(NULL,
+                        L"更新已取消：请使用当前 Windows 账户批准 "
+                        L"UAC。使用其他管理员账户会改变配置和加密授权所属用户，因此未替换任何文件。",
+                        L"NetPilot Lite", MB_ICONWARNING);
+            LocalFree(args);
+            return ERROR_ACCESS_DENIED;
+        }
+        n -= 2;
+    }
     BOOL apply = args && n == 4 && !wcscmp(args[1], L"--apply"),
          recovery = args && n == 3 && !wcscmp(args[1], L"--recover");
-    if ((apply || recovery) && !is_admin()) {
+    if ((apply || recovery) && !is_admin() && !directory_writable(recovery ? args[2] : args[3])) {
         DWORD code;
         BOOL child = elevate_arguments(n, args, &code);
         LocalFree(args);

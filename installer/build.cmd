@@ -27,8 +27,4 @@ rc /nologo /I installer\common /fo obj\installer\guard.res installer\common\guar
 if errorlevel 1 exit /b 1
 cl %CLFLAGS% /LD /Foobj\installer\ /Febin\Release\InstallGuard.dll installer\common\guard.c src\trust.c src\core.c /link obj\installer\guard.res /MANIFEST:NO user32.lib bcrypt.lib version.lib ole32.lib
 if errorlevel 1 exit /b 1
-rc /nologo /I installer\web /fo obj\installer\web.res installer\web\web.rc
-if errorlevel 1 exit /b 1
-cl %CLFLAGS% /Foobj\installer\ /Febin\Release\NetPilotLite-Web-Setup.exe installer\web\main.c src\online.c src\json.c installer\web\cache.c src\trust.c src\core.c /link obj\installer\web.res /MANIFEST:NO /SUBSYSTEM:WINDOWS user32.lib gdi32.lib comctl32.lib shell32.lib ole32.lib uuid.lib advapi32.lib bcrypt.lib version.lib winhttp.lib shlwapi.lib
-if errorlevel 1 exit /b 1
 exit /b 0

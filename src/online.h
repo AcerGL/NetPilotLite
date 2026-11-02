@@ -1,6 +1,7 @@
 #ifndef NP_ONLINE_H
 #define NP_ONLINE_H
 #include "update.h"
+#include "repository.h"
 #ifndef NP_GITHUB_OWNER
 #define NP_GITHUB_OWNER L"AcerGL"
 #endif
@@ -45,6 +46,7 @@ typedef struct NP_HTTP_FIXTURE {
     BOOL interrupt;
     DWORD repo_status; /* Optional second request when latest returns 404. */
     const char *repo_json;
+    BOOL private_api; /* Test-only routing of authenticated repository/list requests. */
 } NP_HTTP_FIXTURE;
 extern NP_HTTP_FIXTURE np_http_fixture;
 BOOL np_online_transport_probe(NP_ERROR *);

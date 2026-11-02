@@ -219,7 +219,7 @@ int wmain(int argc, WCHAR **argv) {
     NP_RELEASE release;
     NP_ERROR e;
     CHECK(np_verify_release(newexe, &release, &e));
-    CHECK(release.version[0] == 1 && release.version[1] == 3 && release.version[2] == 1);
+    CHECK(release.version[0] == 1 && release.version[1] == 4 && release.version[2] == 0);
     folder(dir, L"中文 空格 upgrade");
     copy_product(dir, L"old");
     child(target, dir, L"NetPilotLite.exe");
@@ -233,7 +233,7 @@ int wmain(int argc, WCHAR **argv) {
     CHECK(run_app(target));
     CHECK(np_updater_apply(newexe, target, FALSE) == 0);
     DWORD version[4];
-    CHECK(np_file_version(target, version) && version[1] == 3 && version[2] == 1);
+    CHECK(np_file_version(target, version) && version[1] == 4 && version[2] == 0);
     CHECK(np_release_matches(target, &release));
     CHECK(shortcut(link, target, FALSE));
     np_hash_file(config, afterhash);
@@ -244,7 +244,7 @@ int wmain(int argc, WCHAR **argv) {
     child(journal, dir, L".NetPilotLite.update-state");
     child(backup, dir, L".NetPilotLite.previous");
     CHECK(!exists(journal) && !exists(backup));
-    wprintf(L"Running legacy mock GUI 1.0.0 -> mock GUI 1.3.1: fixed path, normal exit, startup ACK, "
+    wprintf(L"Running legacy mock GUI 1.0.0 -> mock GUI 1.4.0: fixed path, normal exit, startup ACK, "
             L"shortcut and configuration retained.\n");
     /* This is the actual previous 1.0.1 mock GUI retained from the published baseline. */
     folder(dir, L"prior-101-upgrade");
@@ -262,14 +262,14 @@ int wmain(int argc, WCHAR **argv) {
     CHECK(np_hash_file(config, confhash));
     CHECK(run_app(target));
     CHECK(np_updater_apply(newexe, target, FALSE) == 0);
-    CHECK(np_file_version(target, version) && version[1] == 3 && version[2] == 1);
+    CHECK(np_file_version(target, version) && version[1] == 4 && version[2] == 0);
     CHECK(np_hash_file(config, afterhash) && !memcmp(confhash, afterhash, 32));
     CHECK(np_settings_load(&prior_settings, dir, &e) && prior_settings.rule_count == 1 &&
           prior_settings.rules[0].enabled);
     CHECK(find(target).count == 1);
     close_app(target);
     wprintf(
-        L"Running previous 1.0.1 mock GUI -> 1.3.1: same path replacement and single instance verified.\n");
+        L"Running previous 1.0.1 mock GUI -> 1.4.0: same path replacement and single instance verified.\n");
     child(src, root, L"stagea");
     child(target, src, L"NetPilotLite.exe");
     if (exists(target)) {
@@ -279,11 +279,11 @@ int wmain(int argc, WCHAR **argv) {
         CHECK(np_file_version(target, version) && version[1] == 1 && version[2] == 0 && version[3] == 0);
         CHECK(run_app(target));
         CHECK(np_updater_apply(newexe, target, FALSE) == 0);
-        CHECK(np_file_version(target, version) && version[1] == 3 && version[2] == 1 && version[3] == 0);
+        CHECK(np_file_version(target, version) && version[1] == 4 && version[2] == 0 && version[3] == 0);
         CHECK(find(target).count == 1);
         close_app(target);
         wprintf(
-            L"Retained Stage A 1.1.0.0 mock GUI -> final 1.3.1: same path and single instance verified.\n");
+            L"Retained Stage A 1.1.0.0 mock GUI -> final 1.4.0: same path and single instance verified.\n");
     } else
         wprintf(L"Optional retained Stage A mock fixture not supplied; Stage A upgrade not run.\n");
     folder(dir, L"corrupt");
@@ -331,7 +331,7 @@ int wmain(int argc, WCHAR **argv) {
     CHECK(np_updater_apply(newexe, target, FALSE) == 92);
     SetEnvironmentVariableW(L"NP_UPDATE_TEST_FAULT", NULL);
     CHECK(np_updater_apply(NULL, target, TRUE) == 0);
-    CHECK(np_verify_release(target, &release, &e) && release.version[1] == 3 && release.version[2] == 1);
+    CHECK(np_verify_release(target, &release, &e) && release.version[1] == 4 && release.version[2] == 0);
     CHECK(find(target).count == 1);
     close_app(target);
     folder(dir, L"signature");

@@ -3,6 +3,7 @@
 #include "visual.h"
 #include "update.h"
 #include "apps.h"
+#include "private_update.h"
 #include <shlwapi.h>
 #include <richedit.h>
 #include <shellapi.h>
@@ -308,7 +309,7 @@ static void notify(const WCHAR *s, BOOL success) {
 }
 static BOOL can(int i, BOOL enable) {
     NP_STATE s = a.cards[i].current;
-    return !a.busy && !a.quit_pending && a.scan_ok && a.prefs.has[i] && (a.admin || a.mock) &&
+    return !a.busy && !a.quit_pending && a.scan_ok && a.prefs.has[i] &&
            (np_enabled(s) || s == NP_DISABLED || s == NP_INTERFACE_DISABLED) && (enable || a.local);
 }
 static void controls_state(void) {
@@ -572,7 +573,7 @@ static void local_update(void) {
         return;
     }
     WCHAR file[NP_PATH] = L"";
-    BOOL installed = np_current_installed();
+    BOOL installed = FALSE;
     if (!browse(a.settings, file, installed ? L"NetPilot Lite Offline Setup\0NetPilotLite-Offline-Setup.exe\0\0" : L"NetPilot Lite EXE\0NetPilotLite.exe\0\0"))
         return;
     NP_RELEASE release;
@@ -862,8 +863,11 @@ static LRESULT CALLBACK window_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
                                 memcmp(&a.snapshot, &d->snapshot, sizeof(a.snapshot)) != 0;
             if (!online.started) {
                 online.started = TRUE;
-                if (a.prefs.update.startup && !a.mock)
-                    online_start(FALSE);
+                if (!a.mock) {
+                    NP_ERROR e = {0};
+                    if (!np_startup_initialize(&e)) error_text(&e, online.status, 1000);
+                    if (a.prefs.update.startup) SetTimer(w, 7, 1500, NULL);
+                }
             }
             a.first_scan = TRUE;
             a.scan_ok = d->scan_ok;
@@ -945,7 +949,9 @@ static LRESULT CALLBACK window_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     case WM_TIMER:
-        if (wp == 6) {
+        if (wp == 7) {
+            online_boot_tick();
+        } else if (wp == 6) {
             if (a.settings && a.settings_page == 5)
                 routing_start();
             else
@@ -1172,7 +1178,7 @@ int np_app_run(HINSTANCE instance, int show_cmd, BOOL mock, BOOL smoke) {
                              r.right - r.left, r.bottom - r.top, NULL, NULL, instance, NULL);
     if (!w)
         return 1;
-    ShowWindow(w, a.prefs.maximized ? SW_MAXIMIZE : show_cmd);
+    ShowWindow(w, show_cmd == SW_HIDE ? SW_HIDE : a.prefs.maximized ? SW_MAXIMIZE : show_cmd);
     UpdateWindow(w);
     MSG msg = {0};
     while (GetMessageW(&msg, NULL, 0, 0) > 0) {

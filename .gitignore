@@ -14,3 +14,8 @@ artifacts/release-closure/
 *.pfx
 *.key
 *.zip
+
+artifacts/private-update/
+artifacts/private-download-fixture/
+github-auth.dpapi
+update-state.ini

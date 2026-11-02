@@ -1,3 +1,5 @@
+> 1.4.0 当前流程见 [私有更新说明](PRIVATE_UPDATES.md)。以下为 1.3.x 历史记录，不能用于当前发布。
+
 # NetPilot Lite 1.3.1 发布流程
 
 当前为签名构建候选；正式发布须由用户明确授权。源码上传、CI Artifact、Git tag 与正式 Release 是四件不同的事。客户端仅查询稳定 Release。

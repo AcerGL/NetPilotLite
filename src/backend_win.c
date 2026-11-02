@@ -11,6 +11,9 @@
 #include <wchar.h>
 #include <wlanapi.h>
 #include <ws2tcpip.h>
+#include <shellapi.h>
+#include <shlobj.h>
+#include <stdio.h>
 
 static const GUID net_class = {0x4d36e972, 0xe325, 0x11ce, {0xbf, 0xc1, 0x08, 0x00, 0x2b, 0xe1, 0x03, 0x18}};
 static const WCHAR *binding_key = L"Software\\NetPilotLite";
@@ -38,6 +41,7 @@ BOOL np_binding_save(const NP_BINDING *binding, NP_ERROR *error) {
         np_error(error, ERROR_INVALID_DATA, 0, L"保存网卡绑定");
         return FALSE;
     }
+
     status =
         (DWORD)RegCreateKeyExW(HKEY_CURRENT_USER, binding_key, 0, NULL, 0, KEY_SET_VALUE, NULL, &key, NULL);
     if (status == ERROR_SUCCESS) {
@@ -309,6 +313,33 @@ static BOOL win_set(void *ctx, const NP_BINDING *binding, BOOL enable, NP_ERROR 
     if (!valid_binding(binding)) {
         np_error(error, ERROR_INVALID_DATA, 0, L"绑定身份无效");
         return FALSE;
+    }
+    if (!IsUserAnAdmin()) {
+        WCHAR exe[MAX_PATH], guid[40], args[NP_ID_LEN + 100];
+        if (wcschr(binding->instance, L'"') || !GetModuleFileNameW(NULL, exe, MAX_PATH) ||
+            !StringFromGUID2(&binding->guid, guid, 40)) {
+            np_error(error, ERROR_INVALID_PARAMETER, 0, L"准备限定网卡权限请求");
+            return FALSE;
+        }
+        swprintf_s(args, _countof(args), L"--adapter-action %s \"%s\" %s", guid, binding->instance,
+                   enable ? L"enable" : L"disable");
+        SHELLEXECUTEINFOW se = {sizeof(se)};
+        se.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
+        se.lpVerb = L"runas";
+        se.lpFile = exe;
+        se.lpParameters = args;
+        se.nShow = SW_HIDE;
+        if (!ShellExecuteExW(&se)) {
+            np_error(error, GetLastError(), 0, L"网卡管理员权限请求取消或失败");
+            return FALSE;
+        }
+        WaitForSingleObject(se.hProcess, INFINITE);
+        DWORD result = ERROR_GEN_FAILURE;
+        GetExitCodeProcess(se.hProcess, &result);
+        CloseHandle(se.hProcess);
+        if (result)
+            np_error(error, result, 0, L"管理员网卡操作失败；正在重新查询真实状态");
+        return result == 0;
     }
     set = SetupDiCreateDeviceInfoList(&net_class, NULL);
     if (set == INVALID_HANDLE_VALUE) {

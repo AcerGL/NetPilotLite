@@ -1,27 +1,24 @@
-name: Windows x64 signed release
+name: Private stable signed update
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing stable version tag (for example v1.3.1)'
+        description: 'Existing stable tag, for example v1.4.0'
         required: true
         type: string
-      publish:
-        description: 'Request approved signing and publication; environment gates still apply'
-        default: false
-        type: boolean
 permissions:
   contents: read
 concurrency:
-  group: release-${{ github.repository }}-${{ inputs.tag || github.ref_name }}
+  group: stable-${{ github.repository }}-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 jobs:
   build:
     runs-on: windows-2022
+    timeout-minutes: 30
     outputs:
       commit: ${{ steps.source.outputs.commit }}
     steps:
@@ -29,58 +26,28 @@ jobs:
         with:
           ref: refs/tags/${{ env.RELEASE_TAG }}
           persist-credentials: false
-      - name: Pin checked source and validate version before building
-        id: source
+      - id: source
         shell: pwsh
         run: |
           ./scripts/validate-version.ps1 -Tag $env:RELEASE_TAG
           "commit=$(git rev-parse HEAD)" >> $env:GITHUB_OUTPUT
-      - name: Build native product and bootstrapper without signing secrets
-        shell: cmd
-        run: |
-          call build.cmd
-          if errorlevel 1 exit /b 1
-          call installer\build.cmd
-          if errorlevel 1 exit /b 1
-      - name: Mock protocol and configuration tests (no adapter writes)
+      - shell: cmd
+        run: build.cmd
+      - name: Read-only regression tests
         shell: pwsh
         run: |
-          & ./bin/Release/NetPilotLite.Tests.exe --feature-tests
-          if ($LASTEXITCODE) { throw 'Feature tests failed' }
-          & ./bin/Release/NetPilotLite.Tests.exe --routing-tests
-          if ($LASTEXITCODE) { throw 'Routing tests failed' }
+          foreach($test in @('--feature-tests','--private-tests','--routing-tests')) {
+            & ./bin/Release/NetPilotLite.Tests.exe $test
+            if($LASTEXITCODE){throw "Failed: $test"}
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: unsigned-review-only
+          path: bin/Release/NetPilotLite.exe
           if-no-files-found: error
-          path: |
-            bin/Release/NetPilotLite.exe
-            bin/Release/NetPilotLite-Web-Setup.exe
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-verifier
-          if-no-files-found: error
-          path: bin/Release/NetPilotLite.Tests.exe
-  authorize:
-    needs: build
-    if: github.event_name == 'push' || inputs.publish
-    runs-on: windows-2022
-    environment: release-signing
-    steps:
-      - name: Require explicit repository release readiness
-        shell: pwsh
-        env:
-          SIGNING_ENABLED: ${{ vars.RELEASE_SIGNING_ENABLED }}
-          LICENSE_CONFIRMED: ${{ vars.LICENSE_CONFIRMED }}
-          ASSETS_CLEARED: ${{ vars.ASSETS_CLEARED }}
-          RELEASE_ALLOWED: ${{ vars.RELEASE_ALLOWED }}
-        run: |
-          foreach ($name in @('SIGNING_ENABLED','LICENSE_CONFIRMED','ASSETS_CLEARED','RELEASE_ALLOWED')) {
-            if ([Environment]::GetEnvironmentVariable($name) -cne 'true') { throw "Release blocked: $name is not explicitly enabled; build artifacts are review-only" }
-          }
   sign:
-    needs: [build, authorize]
-    runs-on: [self-hosted, Windows, X64, netpilot-signing]
+    needs: build
+    runs-on: windows-2022
     timeout-minutes: 30
     environment: release-signing
     steps:
@@ -88,41 +55,37 @@ jobs:
         with:
           ref: ${{ needs.build.outputs.commit }}
           persist-credentials: false
-      - name: Rebuild exact reviewed commit, package and sign with pinned identity
+      - shell: cmd
+        run: build.cmd
+      - name: Sign with pinned publisher identity and test package
         shell: pwsh
         env:
-          SIGNING_KEY_PATH: ${{ secrets.SIGNING_KEY_PATH }}
-          INNO_COMPILER: ${{ vars.INNO_COMPILER }}
+          NETPILOT_SIGNING_KEY_B64: ${{ secrets.NETPILOT_SIGNING_KEY_B64 }}
         run: |
+          if(!$env:NETPILOT_SIGNING_KEY_B64){throw 'Trusted signing secret is not configured; publication blocked'}
           ./scripts/validate-version.ps1 -Tag $env:RELEASE_TAG
-          if (!$env:SIGNING_KEY_PATH -or !$env:INNO_COMPILER) { throw 'Trusted signer is not configured' }
-          ./scripts/build-release.ps1 -SigningKey $env:SIGNING_KEY_PATH -InnoCompiler $env:INNO_COMPILER -ExpectedTag $env:RELEASE_TAG
-          ./scripts/publish-release.ps1 -Tag $env:RELEASE_TAG -Directory dist -VerifierPath bin/Release/NetPilotLite.Tests.exe
-      - name: Signed download and release transport regression tests (mocked HTTP)
-        shell: pwsh
-        env:
-          SIGNING_KEY_PATH: ${{ secrets.SIGNING_KEY_PATH }}
-        run: |
-          & ./tests/build_update_tests.cmd $env:SIGNING_KEY_PATH
-          if ($LASTEXITCODE) { throw 'Signed fixture build failed' }
-          & ./bin/Release/NetPilotLite.Tests.exe --feature-tests artifacts/update-fixtures/fail/NetPilotLite.exe
-          if ($LASTEXITCODE) { throw 'Signed download tests failed' }
-          ./tests/test-release-pipeline.ps1 -Tag $env:RELEASE_TAG
+          python ./scripts/package-update.py --key ENV --tag $env:RELEASE_TAG
+          if($LASTEXITCODE){throw 'Signing failed'}
+          & ./bin/Release/NetPilotLite.Tests.exe --package-test dist/update
+          if($LASTEXITCODE){throw 'Signed package verification failed'}
+          & ./tests/build_update_tests.cmd ENV
+          if($LASTEXITCODE){throw 'Signed mock fixtures failed'}
+          python ./tests/private-download-fixture.py ENV
+          if($LASTEXITCODE){throw 'Private download fixture failed'}
+          & ./bin/Release/NetPilotLite.Tests.exe --private-download-test artifacts/private-download-fixture
+          if($LASTEXITCODE){throw 'Private download protocol tests failed'}
+          & ./bin/Release/UpdateTests.exe artifacts/update-fixtures
+          if($LASTEXITCODE){throw 'Replacement/rollback tests failed'}
       - uses: actions/upload-artifact@v4
         with:
-          name: signed-installers-awaiting-acceptance
+          name: signed-stable-update
           if-no-files-found: error
-          path: |
-            dist/NetPilotLite-Web-Setup.exe
-            dist/NetPilotLite-Offline-Setup.exe
-            dist/NetPilotLite-Offline-Setup.exe.update
-            dist/NetPilotLite-Portable-x64.zip
-            dist/NetPilotLite.exe
-            dist/NetPilotLite.exe.update
-            dist/version.json
-            dist/release-catalog.json
-            dist/release-catalog.json.update
-            dist/SHA256SUMS.txt
+          path: dist/update/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pinned-verifier
+          path: bin/Release/NetPilotLite.Tests.exe
+          if-no-files-found: error
   publish:
     needs: [build, sign]
     runs-on: windows-2022
@@ -136,27 +99,15 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: signed-installers-awaiting-acceptance
+          name: signed-stable-update
           path: release
       - uses: actions/download-artifact@v4
         with:
-          name: release-verifier
+          name: pinned-verifier
           path: verifier
-      - name: Verify signatures; draft, upload, read back, publish accepted bytes
+      - name: Verify, upload draft, read back, then publish stable
         shell: pwsh
         env:
-          ACCEPTED_OFFLINE_SHA256: ${{ vars.ACCEPTED_OFFLINE_SHA256 }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: |
-          ./scripts/publish-release.ps1 -Tag $env:RELEASE_TAG -Directory release -VerifierPath verifier/NetPilotLite.Tests.exe -PublishApproved
-      - name: Record anonymous channel visibility separately
-        shell: pwsh
-        run: |
-          ./scripts/diagnose-github.ps1 -Repository '${{ github.repository }}' -Anonymous -OutputPath anonymous-channel.json
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: publication-diagnostics
-          path: anonymous-channel.json
-          if-no-files-found: warn
+        run: ./scripts/publish-release.ps1 -Tag $env:RELEASE_TAG -Directory release -VerifierPath verifier/NetPilotLite.Tests.exe -PublishApproved
