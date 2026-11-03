@@ -1,3 +1,19 @@
+# NetPilot Lite 1.5.0 · 单 EXE 在线安装与原地更新
+
+当前用户入口为 **NetPilotLite-Setup-x64.exe**：原生 C17/Win32、公开稳定 Release、签名 manifest、逐文件下载、同目录覆盖、启动验证及失败回滚。无需 Token，不生成 ZIP 用户安装包或更新包。
+
+配置仍在 `%LOCALAPPDATA%\NetPilotLite`；保留 Princess 主题、托盘、设备控制及只读分流诊断。默认启动及更新均不切换网卡。
+
+- [安装、更新、签名与构建](docs/PUBLIC_SETUP.md)
+- [验收结果及未验证限制](docs/PUBLIC_SETUP_TEST_REPORT.md)
+- Visual Studio Solution：`NetPilotLite.sln`，Release / x64。
+- 本地发布文件：`dist/public`；用户只需下载其中的 Setup。
+
+**当前状态：Windows 本地文件安装/覆盖/回滚验证已执行；公开 GitHub Release 在线端到端验收尚未完成。仓库仍为 Private，尚未发布 1.5.0。**
+
+以下章节为历史记录。其私有 Token、ZIP、Inno 及 Web Setup 分发说明不再适用于当前版本，以以上 1.5.0 文档为准。
+
+---
 # NetPilot Lite 1.4.0 · 私有 GitHub 更新
 
 私有仓库授权、DPAPI CurrentUser 加密保存、每个 Windows 开机周期后台检查、签名 ZIP 下载和独立更新器原地替换。保留 Princess 主题、托盘、网络控制及分流功能；不生成 Web Setup。
@@ -94,3 +110,4 @@
 新增测试：`--feature-tests [签名的 2.0.0 故障样本 EXE]`、`--feature-ui`、`--apps-probe`、`--online-probe`。后两项只读真实环境；前两项使用模拟数据。GitHub Actions 工程目录根下的 `.github/workflows` 仅已准备，尚未运行。
 
 每次重复升级测试请运行 `tools\test-upgrade.ps1`：自动复制模拟样本到新的测试根目录，保留故障证据，避免复用残留的未来 schema 和中断事务目录。不要将正式用户 EXE 放入测试样本目录。
+

@@ -105,6 +105,11 @@ static BOOL fixture_request(const WCHAR *url, BOOL asset, BYTE **memory, DWORD *
                                                         : NP_PACKAGE_JSON L".update";
         swprintf_s(path, NP_PATH, L"%s\\%s", np_http_fixture.exe, name);
     }
+    if (np_http_fixture.public_assets) {
+        const WCHAR *name = wcsrchr(url, L'/');
+        if (!name || !name[1] || wcschr(name + 1, L'\\')) return FALSE;
+        swprintf_s(path, NP_PATH, L"%s\\%s", np_http_fixture.exe, name + 1);
+    }
     HANDLE in = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
     if (in == INVALID_HANDLE_VALUE)
         return FALSE;
@@ -467,6 +472,10 @@ static BOOL request(const WCHAR *initial, BOOL asset, BYTE **memory, DWORD *leng
                     ULONGLONG limit, volatile LONG *cancel, NP_DOWNLOAD_PROGRESS progress, void *context,
                     NP_ERROR *e) {
     return request_impl(initial, asset, memory, length, file, limit, cancel, progress, context, e, NULL);
+}
+BOOL np_public_http(const WCHAR *url, BOOL asset, BYTE **memory, DWORD *length, HANDLE file,
+                    ULONGLONG limit, volatile LONG *cancel, NP_DOWNLOAD_PROGRESS progress,void *ctx,NP_ERROR *e) {
+    return request(url,asset,memory,length,file,limit,cancel,progress,ctx,e);
 }
 BOOL np_private_http(const NP_UPDATE_SETTINGS *s, const WCHAR *token, const WCHAR *url, BOOL asset,
                      BYTE **memory, DWORD *length, HANDLE file, ULONGLONG limit, volatile LONG *cancel,

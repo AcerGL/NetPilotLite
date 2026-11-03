@@ -1,8 +1,8 @@
 #ifndef NP_UPDATE_H
 #define NP_UPDATE_H
 #include "lite.h"
-#define NP_VERSION L"1.4.0"
-#define NP_VERSION_NUM 1, 4, 0, 0
+#define NP_VERSION L"1.5.0"
+#define NP_VERSION_NUM 1, 5, 0, 0
 #define NP_PATH 1024
 #define NP_SIGNATURE_ERROR ((DWORD)0x80096010L) /* TRUST_E_BAD_DIGEST */
 #pragma pack(push, 1)
@@ -31,6 +31,7 @@ BOOL np_update_start(HWND, const WCHAR *, NP_ERROR *);
 BOOL np_update_recovery_pending(void);
 BOOL np_update_recover_start(NP_ERROR *);
 BOOL np_update_health_argument(const WCHAR *);
+BOOL np_update_health_mode(void);
 void np_update_health_ready(void);
 int np_updater_apply(const WCHAR *, const WCHAR *, BOOL);
 #endif

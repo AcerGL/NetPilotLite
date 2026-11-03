@@ -3,10 +3,13 @@
 #include <objbase.h>
 #include <stdio.h>
 static WCHAR health_guid[40];
+static BOOL health_mode;
+BOOL np_update_health_mode(void){return health_mode;}
 BOOL np_update_health_argument(const WCHAR *arg) {
     GUID id;
     if (arg && wcslen(arg) == 38 && SUCCEEDED(CLSIDFromString(arg, &id))) {
         wcscpy_s(health_guid, _countof(health_guid), arg);
+        health_mode=TRUE;
         return TRUE;
     }
     return FALSE;

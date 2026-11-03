@@ -1,10 +1,13 @@
+static void public_file_cleanup(const WCHAR *file){
+    WCHAR dir[NP_PATH];if(wcslen(file)>=NP_PATH)return;wcscpy_s(dir,NP_PATH,file);WCHAR *slash=wcsrchr(dir,L'\\');if(slash){*slash=0;np_setup_cleanup(dir);}
+}
 /* Workers own immutable request snapshots. Only the UI thread touches controls/settings. */
 typedef struct ONLINE_JOB {
     HWND window;
-    BOOL download, ok, mock, authorize, automatic;
+    BOOL download, ok, mock, automatic;
     unsigned attempt;
-    WCHAR token[NP_TOKEN_CHARS], boot[40];
-    NP_PRIVATE_RELEASE package;
+    WCHAR boot[40];
+    NP_PUBLIC_RELEASE package;
     NP_UPDATE_SETTINGS settings;
     NP_ONLINE_RELEASE release;
     NP_ERROR error;
@@ -15,7 +18,7 @@ static struct {
     BOOL next_auto;
     unsigned attempt;
     WCHAR boot[40];
-    NP_PRIVATE_RELEASE package;
+    NP_PUBLIC_RELEASE package;
     volatile LONG cancel;
     NP_ONLINE_RELEASE release;
     WCHAR file[NP_PATH], status[1000];
@@ -32,7 +35,7 @@ static void online_render(void) {
         GetDlgItem(a.settings_content, 611),
         online.status[0]
             ? online.status
-            : L"私有 GitHub Release 更新：请先在下方授权；Token 仅保存在本机 CurrentUser 加密文件中。");
+            : L"公开 GitHub 稳定版更新，无需 Token。确认后自动下载同版本 Setup，由它获取全部独立运行文件。");
     int ids[] = {216, 217, 600, 601, 602, 603, 620, 621, 622, 623};
     for (int i = 0; i < _countof(ids); ++i)
         EnableWindow(GetDlgItem(a.settings_content, ids[i]), !online.busy);
@@ -83,28 +86,15 @@ static DWORD WINAPI online_worker(void *arg) {
         np_error(&j->error, ERROR_NOT_SUPPORTED, 0,
                  L"模拟窗口不发起真实更新请求，请使用协议测试检查响应解析");
         j->ok = FALSE;
-    } else if (j->authorize) {
-        NP_AUTH auth = {0};
-        auth.magic = 0x4e504154;
-        wcscpy_s(auth.owner, 100, j->settings.owner);
-        wcscpy_s(auth.repo, 100, j->settings.repo);
-        wcscpy_s(auth.token, NP_TOKEN_CHARS, j->token);
-        j->ok = np_auth_validate(&j->settings, j->token, &online.cancel, &j->error);
-        if (j->ok && !InterlockedCompareExchange(&online.cancel, 0, 0))
-            j->ok = np_auth_store(NULL, &auth, &j->error);
-        SecureZeroMemory(&auth, sizeof(auth));
-    } else if (j->download)
-        j->ok = np_private_download(&j->package, &j->settings, j->file, &online.cancel, online_progress,
-                                    j->window, &j->error);
+    } else if(j->download)
+        j->ok=np_public_download_setup(&j->package,j->file,&online.cancel,online_progress,j->window,&j->error);
     else {
-        j->ok = np_private_check(&j->settings, &j->package, &online.cancel, &j->error);
-        if (j->ok)
-            j->release = j->package.info;
+        j->ok=np_public_check(&j->settings,NULL,&j->package,&online.cancel,&j->error);
+        if(j->ok)j->release=j->package.info;
     }
-    SecureZeroMemory(j->token, sizeof(j->token));
     if (!PostMessageW(j->window, WM_ONLINE_DONE, 0, (LPARAM)j)) {
         if (j->file[0])
-            np_online_cleanup(j->file);
+            public_file_cleanup(j->file);
         free(j);
     }
     return 0;
@@ -123,7 +113,7 @@ static BOOL online_save_config(void) {
     if (wcscmp(s->owner, owner) || wcscmp(s->repo, repo)) {
         online.available = online.verified = FALSE;
         if (online.file[0])
-            np_online_cleanup(online.file);
+            public_file_cleanup(online.file);
         online.file[0] = 0;
     }
     wcscpy_s(s->owner, 100, owner);
@@ -180,7 +170,7 @@ static void online_done(ONLINE_JOB *j) {
     online.busy = FALSE;
     if (!j)
         return;
-    if (!j->download && !j->authorize) {
+    if (!j->download) {
         SYSTEMTIME t;
         GetLocalTime(&t);
         swprintf_s(a.prefs.update.last_check, 40, L"%04u-%02u-%02u %02u:%02u:%02u", t.wYear, t.wMonth, t.wDay,
@@ -190,15 +180,11 @@ static void online_done(ONLINE_JOB *j) {
     if (InterlockedCompareExchange(&online.cancel, 0, 0)) {
         online.install_after_download = FALSE;
         if (j->file[0])
-            np_online_cleanup(j->file);
+            public_file_cleanup(j->file);
         wcscpy_s(online.status, 1000, L"本次更新已取消。");
     } else if (!j->ok) {
         online.failed = TRUE;
         error_text(&j->error, online.status, 1000);
-    } else if (j->authorize) {
-        wcscpy_s(
-            online.status, 1000,
-            L"授权验证成功：已加密保存；可手动检查更新。权限范围请在 GitHub 确认仅本仓库 Contents: Read。");
     } else if (j->download) {
         wcscpy_s(online.file, NP_PATH, j->file);
         online.verified = TRUE;
@@ -223,7 +209,7 @@ static void online_done(ONLINE_JOB *j) {
         j->ok && j->download && online.verified && online.install_after_download && !a.quit_pending;
     if (confirm_install)
         online.install_after_download = FALSE;
-    BOOL prompt = FALSE, authorize = FALSE;
+    BOOL prompt = FALSE;
     if (j->automatic) {
         BOOL terminal = j->ok || j->error.win32 == ERROR_LOGON_FAILURE || j->error.http_status == 403 ||
                         j->error.http_status == 404 || j->attempt >= 3;
@@ -231,20 +217,11 @@ static void online_done(ONLINE_JOB *j) {
             BOOL persisted = np_boot_complete(NULL, j->boot);
             KillTimer(a.window, 7);
             prompt = persisted && j->ok && online.available && !np_ignored(NULL, online.release.version);
-            authorize = persisted && !j->ok && j->error.win32 == ERROR_LOGON_FAILURE;
+
         }
     }
     free(j);
     online_render();
-    if (authorize && !a.quit_pending) {
-        if (MessageBoxW(a.window,
-                        L"自动更新需要授权读取私有仓库。请在设置中粘贴仅限本仓库 Contents: Read 的 "
-                        L"Fine-grained Token。现在打开设置？",
-                        L"NetPilot Lite · 首次授权", MB_YESNO | MB_ICONINFORMATION) == IDYES) {
-            show_settings();
-            settings_page(6);
-        }
-    }
     if (prompt && !a.quit_pending)
         update_prompt();
     if (confirm_install)
@@ -262,7 +239,7 @@ static void online_controls(HWND w) {
     check(w, 6, 188, 603, L"每个 Windows 开机周期自动检查一次", a.prefs.update.startup);
     cell(w, 6, 0, 2, 232, 32, L"STATIC", L"", SS_NOPREFIX, 610);
     sbutton(w, 6, 0, 1, 278, L"检查更新", 216);
-    sbutton(w, 6, 1, 1, 278, L"从本地文件更新…", 217);
+    sbutton(w, 6, 1, 1, 278, L"查看公开下载页面", 217);
     cell(w, 6, 0, 2, 330, 98, L"STATIC", L"", SS_NOPREFIX, 611);
     cell(w, 6, 0, 2, 440, 16, PROGRESS_CLASSW, L"", 0, 613);
     sbutton(w, 6, 0, 1, 474, L"下载并安装…", 604);
@@ -275,35 +252,13 @@ static void online_controls(HWND w) {
          ES_MULTILINE | ES_READONLY | WS_VSCROLL | WS_BORDER | WS_TABSTOP, 612);
     markdown_notes(GetDlgItem(a.settings_content, 612),
                    online.release.body[0] ? online.release.body : L"暂无远端更新日志。");
-    slabel(w, 6, 870, L"私有仓库首次授权：只选本仓库 · Contents: Read");
-    HWND token =
-        cell(w, 6, 0, 2, 910, 32, L"EDIT", L"", ES_PASSWORD | ES_AUTOHSCROLL | WS_BORDER | WS_TABSTOP, 620);
-    SendMessageW(token, EM_SETLIMITTEXT, NP_TOKEN_CHARS - 1, 0);
-    sbutton(w, 6, 0, 1, 956, L"验证 / 更换授权", 621);
-    sbutton(w, 6, 1, 1, 956, L"移除本机授权", 622);
-    sbutton(w, 6, 0, 2, 1004, L"打开 GitHub Token 设置（创建 / 撤销）", 624);
-    check(w, 6, 1052, 623, L"随 Windows 登录启动（最小化到托盘）", np_autorun_enabled());
-    slabel(w, 6, 1100,
-           L"授权仅发往 api.github.com，不发送给下载 CDN。\n撤销远端 Token 请在 GitHub 设置中操作。");
+    check(w,6,870,623,L"随 Windows 登录启动（最小化到托盘）",np_autorun_enabled());
+    slabel(w,6,922,L"自动更新会运行同版本 Setup，原目录覆盖并保留用户数据。\n不要求下载 ZIP、解压或运行第二个安装包。");
     online_render();
 }
 static BOOL online_command(int id) {
     if (update_notice && (id == 216 || id == 602 || id == 607 || id == 621)) {
         SetForegroundWindow(update_notice);
-        return TRUE;
-    }
-    if (id == 624) {
-        ShellExecuteW(a.settings, L"open", L"https://github.com/settings/personal-access-tokens", NULL, NULL,
-                      SW_SHOWNORMAL);
-        return TRUE;
-    }
-    if (id == 622 && !online.busy) {
-        NP_ERROR e = {0};
-        if (a.mock || !np_auth_remove(NULL, &e))
-            wcscpy_s(online.status, 1000, L"授权未移除（模拟模式或文件操作失败）。");
-        else
-            wcscpy_s(online.status, 1000, L"已移除本机授权；如需使 Token 在所有设备失效，请在 GitHub 撤销。");
-        online_render();
         return TRUE;
     }
     if (id == 623) {
@@ -313,41 +268,6 @@ static BOOL online_command(int id) {
             error_text(&e, online.status, 1000);
             SendMessageW(GetDlgItem(a.settings_content, 623), BM_SETCHECK,
                          np_autorun_enabled() ? BST_CHECKED : BST_UNCHECKED, 0);
-        }
-        online_render();
-        return TRUE;
-    }
-    if (id == 621 && !online.busy && online_save_config()) {
-        ONLINE_JOB *j = calloc(1, sizeof(*j));
-        if (!j)
-            return TRUE;
-        j->window = a.window;
-        j->settings = a.prefs.update;
-        j->mock = a.mock;
-        j->authorize = TRUE;
-        GetWindowTextW(GetDlgItem(a.settings_content, 620), j->token, NP_TOKEN_CHARS);
-        SetWindowTextW(GetDlgItem(a.settings_content, 620), L"");
-        if (!np_token_valid(j->token)) {
-            SecureZeroMemory(j, sizeof(*j));
-            free(j);
-            wcscpy_s(online.status, 1000, L"请输入有效格式的 Fine-grained Token（github_pat_ 开头）。");
-            online_render();
-            return TRUE;
-        }
-        online.busy = TRUE;
-        online.failed = FALSE;
-        InterlockedExchange(&online.cancel, 0);
-        ++a.async_jobs;
-        wcscpy_s(online.status, 1000, L"正在验证私有仓库和 Release 读取权限…");
-        HANDLE t = CreateThread(NULL, 0, online_worker, j, 0, NULL);
-        if (t)
-            CloseHandle(t);
-        else {
-            SecureZeroMemory(j, sizeof(*j));
-            free(j);
-            online.busy = FALSE;
-            --a.async_jobs;
-            wcscpy_s(online.status, 1000, L"无法启动授权线程，请重试。");
         }
         online_render();
         return TRUE;
@@ -385,7 +305,7 @@ static BOOL online_command(int id) {
             online.install_after_download = FALSE;
             online.available = online.verified = FALSE;
             if (online.file[0])
-                np_online_cleanup(online.file);
+                public_file_cleanup(online.file);
             online.file[0] = 0;
             online_start(FALSE);
         }
@@ -403,7 +323,7 @@ static BOOL online_command(int id) {
         InterlockedExchange(&online.cancel, 1);
         if (!online.busy) {
             if (online.file[0])
-                np_online_cleanup(online.file);
+                public_file_cleanup(online.file);
             online.file[0] = 0;
             online.verified = FALSE;
             wcscpy_s(online.status, 1000, L"已选择稍后更新。当前版本继续运行。");
@@ -416,7 +336,7 @@ static BOOL online_command(int id) {
             return TRUE;
         NP_ERROR e = {0};
         NP_RELEASE checked;
-        if (!np_verify_release(online.file, &checked, &e) ||
+        if (!np_verify_setup(online.file, &checked, &e) ||
             memcmp(checked.version, online.release.version, 16)) {
             online.verified = FALSE;
             error_text(&e, online.status, 1000);
@@ -424,7 +344,8 @@ static BOOL online_command(int id) {
             return TRUE;
         }
         save_now();
-        if (!np_update_start(a.settings, online.file, &e)) {
+        WCHAR dir[NP_PATH];GetModuleFileNameW(NULL,dir,NP_PATH);WCHAR *slash=wcsrchr(dir,L'\\');if(!slash)return TRUE;*slash=0;
+        if (!np_public_launch_setup(online.file, online.release.tag+1,dir,&e)) {
             error_text(&e, online.status, 1000);
             online_render();
         } else {

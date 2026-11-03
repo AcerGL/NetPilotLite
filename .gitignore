@@ -19,3 +19,6 @@ artifacts/private-update/
 artifacts/private-download-fixture/
 github-auth.dpapi
 update-state.ini
+artifacts/public-setup/
+artifacts/public-fixture-*/
+artifacts/feature-config-*/

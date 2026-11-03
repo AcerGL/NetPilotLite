@@ -113,6 +113,7 @@ static BOOL product_version(const WCHAR *path, DWORD v[4], const WCHAR *expected
 }
 BOOL np_file_version(const WCHAR *path, DWORD v[4]) { return product_version(path, v, L"NetPilot Lite"); }
 BOOL np_installer_version(const WCHAR *path, DWORD v[4]) { return product_version(path, v, L"NetPilot Lite Offline Setup"); }
+BOOL np_setup_version(const WCHAR *path,DWORD v[4]) {return product_version(path,v,L"NetPilot Lite Setup");}
 static BOOL signature(const NP_RELEASE *r, const char *magic) {
     BYTE digest[32];
     BCRYPT_ALG_HANDLE a = NULL;
@@ -138,6 +139,7 @@ static BOOL signature(const NP_RELEASE *r, const char *magic) {
 BOOL np_release_signature(const NP_RELEASE *r) { return signature(r, "NPLREL1"); }
 BOOL np_installer_signature(const NP_RELEASE *r) { return signature(r, "NPLOFF1"); }
 BOOL np_catalog_signature(const NP_RELEASE *r) { return signature(r, "NPLCAT1"); }
+BOOL np_setup_signature(const NP_RELEASE *r) {return signature(r,"NPLSET1");}
 static BOOL matches(const WCHAR *path, const NP_RELEASE *r, BOOL installer) {
     BYTE filehash[32];
     DWORD v[4];
@@ -190,4 +192,19 @@ BOOL np_verify_release(const WCHAR *path, NP_RELEASE *r, NP_ERROR *e) {
         return FALSE;
     }
     return TRUE;
+}
+BOOL np_setup_matches(const WCHAR *path,const NP_RELEASE *r) {
+    BYTE hash[32];DWORD v[4];HANDLE f=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,NULL);LARGE_INTEGER n;
+    BOOL ok=f!=INVALID_HANDLE_VALUE&&GetFileSizeEx(f,&n)&&(ULONGLONG)n.QuadPart==r->size;
+    if(f!=INVALID_HANDLE_VALUE)CloseHandle(f);
+    if(!ok||!np_hash_file(path,hash)||memcmp(hash,r->hash,32)||!np_setup_version(path,v)||memcmp(v,r->version,16))return FALSE;
+    f=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,0,NULL);IMAGE_DOS_HEADER dos={0};IMAGE_NT_HEADERS64 pe={0};DWORD got;
+    ok=f!=INVALID_HANDLE_VALUE&&ReadFile(f,&dos,sizeof(dos),&got,NULL)&&got==sizeof(dos)&&dos.e_magic==IMAGE_DOS_SIGNATURE&&dos.e_lfanew>0&&dos.e_lfanew<1048576;
+    if(ok){SetFilePointer(f,dos.e_lfanew,NULL,FILE_BEGIN);ok=ReadFile(f,&pe,sizeof(pe),&got,NULL)&&got==sizeof(pe)&&pe.Signature==IMAGE_NT_SIGNATURE&&pe.FileHeader.Machine==IMAGE_FILE_MACHINE_AMD64&&pe.OptionalHeader.Magic==IMAGE_NT_OPTIONAL_HDR64_MAGIC;}
+    if(f!=INVALID_HANDLE_VALUE)CloseHandle(f);return ok;
+}
+BOOL np_verify_setup(const WCHAR *path,NP_RELEASE *r,NP_ERROR *e) {
+    WCHAR side[NP_PATH];swprintf_s(side,NP_PATH,L"%s.update",path);
+    if(np_read_exact(side,r,sizeof(*r))&&np_setup_signature(r)&&np_setup_matches(path,r))return TRUE;
+    np_error(e,NP_SIGNATURE_ERROR,0,L"Setup 发布签名、文件哈希、x64 产品或版本验证失败");return FALSE;
 }

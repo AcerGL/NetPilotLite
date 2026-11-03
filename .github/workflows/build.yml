@@ -46,9 +46,9 @@ jobs:
           $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath ci-output/NetPilotLite.exe).Hash.ToLowerInvariant()
           "$digest  NetPilotLite.exe" | Set-Content -Encoding ascii ci-output/SHA256SUMS.txt
           'UNSIGNED build for review. Not accepted by the application updater.' | Set-Content ci-output/UNSIGNED.txt
-          Compress-Archive -Path ci-output/* -DestinationPath NetPilotLite-unsigned-win-x64.zip
+          Copy-Item -LiteralPath bin/Release/NetPilotLite-Setup-x64.exe -Destination ci-output/NetPilotLite-Setup-x64.exe
       - uses: actions/upload-artifact@v4
         with:
           name: NetPilotLite-unsigned-win-x64
-          path: NetPilotLite-unsigned-win-x64.zip
+          path: ci-output/*
           if-no-files-found: error

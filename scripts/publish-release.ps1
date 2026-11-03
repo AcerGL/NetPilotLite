@@ -4,7 +4,9 @@ $ErrorActionPreference='Stop'
 if($Tag -cnotmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'){throw 'Stable tag required'}
 $Directory=(Resolve-Path -LiteralPath $Directory).Path
 $VerifierPath=(Resolve-Path -LiteralPath $VerifierPath).Path
-$names=@('NetPilotLite-Update-x64.zip','NetPilotLite-Update-x64.json','NetPilotLite-Update-x64.json.update','NetPilotLite-Update-x64.zip.sha256')
+$manifest=Get-Content -Raw -LiteralPath (Join-Path $Directory 'manifest.json')|ConvertFrom-Json
+$names=@('NetPilotLite-Setup-x64.exe','NetPilotLite-Setup-x64.exe.update','manifest.json','manifest.json.update')+@($manifest.files.asset_name)
+if(($names|Sort-Object -Unique).Count -ne $names.Count -or $names.Count -gt 36){throw 'Invalid asset list'}
 $seen=@{}
 foreach($line in Get-Content -LiteralPath (Join-Path $Directory 'SHA256SUMS.txt')) {
  if($line -cnotmatch '^([a-f0-9]{64})  ([A-Za-z0-9._-]+)$'){throw 'Invalid checksum row'}
@@ -15,15 +17,14 @@ foreach($line in Get-Content -LiteralPath (Join-Path $Directory 'SHA256SUMS.txt'
  if((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash -ine $hash){throw "Hash mismatch: $name"}
  $seen[$name]=$hash
 }
-if($seen.Count -ne 4){throw 'Incomplete manifest'}
-$manifest=Get-Content -Raw -LiteralPath (Join-Path $Directory 'NetPilotLite-Update-x64.json')|ConvertFrom-Json
-if($manifest.release_tag -cne $Tag -or ('v'+$manifest.version) -cne $Tag){throw 'Tag mismatch'}
-& $VerifierPath --package-test $Directory
+if($seen.Count -ne $names.Count){throw 'Incomplete manifest'}
+if(('v'+$manifest.version) -cne $Tag){throw 'Tag mismatch'}
+& $VerifierPath --public-package-test $Directory
 if($LASTEXITCODE){throw 'Pinned signature/package verification failed'}
 if(!$PublishApproved){'Signed update validated offline; nothing published.';return}
 if($Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' -or !$env:GH_TOKEN){throw 'Missing job-scoped repository authorization'}
 $private=(& gh api "repos/$Repository" --jq .private)
-if($LASTEXITCODE -or $private -cne 'true'){throw 'Private repository confirmation failed'}
+if($LASTEXITCODE -or $private -cne 'false'){throw 'Public repository confirmation failed'}
 $existing=(& gh release list --repo $Repository --limit 100 --json tagName|ConvertFrom-Json)
 if($LASTEXITCODE){throw 'Release query failed'}
 if($existing.tagName -contains $Tag){throw 'Release already exists; do not overwrite published assets'}
@@ -42,8 +43,8 @@ if($LASTEXITCODE){throw 'Readback failed; draft not published'}
 foreach($name in @($names)+@('SHA256SUMS.txt')) {
  if((Get-FileHash -LiteralPath (Join-Path $Directory $name)).Hash -ne (Get-FileHash -LiteralPath (Join-Path $readback $name)).Hash){throw 'Readback mismatch; draft not published'}
 }
-& $VerifierPath --package-test $readback
+& $VerifierPath --public-package-test $readback
 if($LASTEXITCODE){throw 'Readback signature verification failed'}
 & gh release edit $Tag --repo $Repository --draft=false --prerelease=false --latest
 if($LASTEXITCODE){throw 'Final publication failed; inspect draft status'}
-'Private stable update published after signature and readback checks.'
+'Public stable Setup and independent runtime files published after signature and readback checks.'

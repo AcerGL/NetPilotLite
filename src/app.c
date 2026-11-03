@@ -4,6 +4,7 @@
 #include "update.h"
 #include "apps.h"
 #include "private_update.h"
+#include "public_setup.h"
 #include <shlwapi.h>
 #include <richedit.h>
 #include <shellapi.h>
@@ -568,34 +569,9 @@ static void choose_image(BOOL cover) {
         message(L"无法启动图片加载线程。");
 }
 static void local_update(void) {
-    if (a.busy == 2) {
-        MessageBoxW(a.settings, L"请先等待网卡操作完成。", L"更新", MB_OK);
-        return;
-    }
-    WCHAR file[NP_PATH] = L"";
-    BOOL installed = FALSE;
-    if (!browse(a.settings, file, installed ? L"NetPilot Lite Offline Setup\0NetPilotLite-Offline-Setup.exe\0\0" : L"NetPilot Lite EXE\0NetPilotLite.exe\0\0"))
-        return;
-    NP_RELEASE release;
-    NP_ERROR e = {0};
-    WCHAR text[700];
-    if (!(installed ? np_verify_installer(file, &release, &e) : np_verify_release(file, &release, &e))) {
-        error_text(&e, text, _countof(text));
-        MessageBoxW(a.settings, text, L"更新文件验证失败", MB_OK | MB_ICONERROR);
-        return;
-    }
-    swprintf_s(text, _countof(text),
-               L"已验证签名、SHA-256 和产品版本 %lu.%lu.%lu。\n将退出当前程序并覆盖当前路径的 "
-               L"NetPilotLite.exe。\n保留用户配置，不改变任何网卡状态。继续吗？",
-               release.version[0], release.version[1], release.version[2]);
-    if (MessageBoxW(a.settings, text, L"本地原地更新", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES)
-        return;
-    save_now();
-    if (!(installed ? np_installer_launch(file, NULL, &e) : np_update_start(a.settings, file, &e))) {
-        error_text(&e, text, _countof(text));
-        MessageBoxW(a.settings, text, L"更新未启动", MB_OK | MB_ICONERROR);
-    } else
-        message(L"更新器已启动，正在等待本实例正常退出…");
+    WCHAR url[512];if(!np_repo_valid(a.prefs.update.owner,a.prefs.update.repo))return;
+    swprintf_s(url,512,L"https://github.com/%s/%s/releases",a.prefs.update.owner,a.prefs.update.repo);
+    ShellExecuteW(a.settings,L"open",url,NULL,NULL,SW_SHOWNORMAL);
 }
 #include "ui_render.inc"
 #include "ui_tray.inc"
@@ -863,7 +839,7 @@ static LRESULT CALLBACK window_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
                                 memcmp(&a.snapshot, &d->snapshot, sizeof(a.snapshot)) != 0;
             if (!online.started) {
                 online.started = TRUE;
-                if (!a.mock) {
+                if (!a.mock && !np_update_health_mode()) {
                     NP_ERROR e = {0};
                     if (!np_startup_initialize(&e)) error_text(&e, online.status, 1000);
                     if (a.prefs.update.startup) SetTimer(w, 7, 1500, NULL);

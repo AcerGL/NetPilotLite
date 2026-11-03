@@ -133,8 +133,8 @@ static void feature_ui_tick(void) {
     }
     RedrawWindow(a.settings, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
     capture_window(a.settings, L"artifacts\\v120-update.bmp");
-    FUI(GetDlgItem(a.settings_content,621)!=NULL);
-    FUI(GetWindowLongPtrW(GetDlgItem(a.settings_content,620),GWL_STYLE)&ES_PASSWORD);
+    FUI(GetDlgItem(a.settings_content,623)!=NULL);
+    FUI(GetDlgItem(a.settings_content,620)==NULL);
     wcscpy_s(online.release.published,64,L"2026-11-02T00:00:00Z");online.release.size=5*1024*1024;
     wcscpy_s(online.release.body,16384,L"# NetPilot Lite 2.0.0 · 模拟更新\n\n• 私有仓库加密授权\n• 每次开机检查一次\n• 自动下载、验证签名与原地替换\n\n保留绑定、主题、背景及分流设置。此窗口用于界面验收。");
     update_prompt();FUI(IsWindow(update_notice));

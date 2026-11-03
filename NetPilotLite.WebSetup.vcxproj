@@ -5,8 +5,8 @@
 <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>
 <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset><CharacterSet>Unicode</CharacterSet><UseDebugLibraries>false</UseDebugLibraries></PropertyGroup>
 <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/><Import Project="Common.props"/>
-<PropertyGroup><TargetName>NetPilotLite-Web-Setup</TargetName></PropertyGroup>
+<PropertyGroup><TargetName>NetPilotLite-Setup-x64</TargetName></PropertyGroup>
 <ItemDefinitionGroup><ResourceCompile><AdditionalIncludeDirectories>$(ProjectDir)installer\web;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ResourceCompile><Link><SubSystem>Windows</SubSystem></Link></ItemDefinitionGroup>
-<ItemGroup><ClCompile Include="installer\web\main.c"/><ClCompile Include="installer\web\cache.c"/><ClCompile Include="src\online.c"/><ClCompile Include="src\json.c"/><ClCompile Include="src\trust.c"/><ClCompile Include="src\core.c"/><ResourceCompile Include="installer\web\web.rc"/></ItemGroup>
+<ItemGroup><ClCompile Include="installer\web\main.c"/><ClCompile Include="installer\web\cache.c"/><ClCompile Include="installer\web\install.c"/><ClCompile Include="src\private_auth.c"/><ClCompile Include="src\public_setup.c"/><ClCompile Include="src\install_manifest.c"/><ClCompile Include="src\online.c"/><ClCompile Include="src\json.c"/><ClCompile Include="src\trust.c"/><ClCompile Include="src\core.c"/><ResourceCompile Include="installer\web\web.rc"/></ItemGroup>
 <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
 </Project>

@@ -1,5 +1,6 @@
 #include "lite.h"
 #include "update.h"
+#include "public_setup.h"
 #include <shellapi.h>
 #include <shlobj.h>
 #include <objbase.h>
@@ -37,6 +38,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR command, int s
         return ERROR_INVALID_PARAMETER;
     }
     LocalFree(argv);
+    if (!health) {
+        NP_ERROR setup_error={0};
+        if(np_setup_pending_start(&setup_error)){if(setup_error.win32)MessageBoxW(NULL,setup_error.operation,L"NetPilot 安装恢复",MB_ICONERROR);return setup_error.win32?1:0;}
+    }
     if (!health) {
         WCHAR pending[NP_PATH];
         GetModuleFileNameW(NULL, pending, NP_PATH);

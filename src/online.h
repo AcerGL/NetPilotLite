@@ -47,6 +47,7 @@ typedef struct NP_HTTP_FIXTURE {
     DWORD repo_status; /* Optional second request when latest returns 404. */
     const char *repo_json;
     BOOL private_api; /* Test-only routing of authenticated repository/list requests. */
+    BOOL public_assets; /* Test-only independent Release assets directory. */
 } NP_HTTP_FIXTURE;
 extern NP_HTTP_FIXTURE np_http_fixture;
 BOOL np_online_transport_probe(NP_ERROR *);

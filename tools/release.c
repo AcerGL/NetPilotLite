@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include "json.h"
+#include "public_setup.h"
 static BOOL catalog_version(const WCHAR *path, DWORD v[4]) {
     HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
     DWORD n = f == INVALID_HANDLE_VALUE ? 0 : GetFileSize(f, NULL);
@@ -62,8 +63,9 @@ int wmain(int argc, WCHAR **argv) {
         if (sealed.pbData)
             LocalFree(sealed.pbData);
     } else if (!wcscmp(argv[1], L"sign") || !wcscmp(argv[1], L"sign-installer") ||
-               !wcscmp(argv[1], L"sign-catalog")) {
+               !wcscmp(argv[1], L"sign-catalog") || !wcscmp(argv[1], L"sign-setup")) {
         BOOL installer = !wcscmp(argv[1], L"sign-installer");
+        BOOL setup = !wcscmp(argv[1], L"sign-setup");
         BOOL catalog = !wcscmp(argv[1], L"sign-catalog");
         BOOL environment = !wcscmp(argv[2], L"ENV");
         HANDLE f = environment
@@ -101,13 +103,13 @@ int wmain(int argc, WCHAR **argv) {
                 fwprintf(stderr, L"Private key does not match the pinned release public key.\n");
         }
         NP_RELEASE r = {0};
-        memcpy(r.magic, catalog ? "NPLCAT1" : installer ? "NPLOFF1" : "NPLREL1", 8);
+        memcpy(r.magic, catalog ? "NPLCAT1" : setup ? "NPLSET1" : installer ? "NPLOFF1" : "NPLREL1", 8);
         WCHAR manifest[NP_PATH];
         f = CreateFileW(argv[3], GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
         LARGE_INTEGER length = {0};
         if (ok)
             ok = f != INVALID_HANDLE_VALUE && GetFileSizeEx(f, &length) &&
-                 (catalog || (installer ? np_installer_version(argv[3], r.version)
+                 (catalog || (setup ? np_setup_version(argv[3], r.version) : installer ? np_installer_version(argv[3], r.version)
                                         : np_file_version(argv[3], r.version))) &&
                  np_hash_file(argv[3], r.hash);
         if (f != INVALID_HANDLE_VALUE)
@@ -123,7 +125,7 @@ int wmain(int argc, WCHAR **argv) {
             DeleteFileW(manifest);
             ok = np_write_exact(manifest, &r, sizeof(r));
         }
-        if (ok && !installer && !catalog) {
+        if (ok && !installer && !catalog && !setup) {
             WCHAR dir[NP_PATH], file[NP_PATH];
             wcscpy_s(dir, _countof(dir), argv[3]);
             WCHAR *slash = wcsrchr(dir, L'\\');

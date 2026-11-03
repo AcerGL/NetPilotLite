@@ -1,11 +1,11 @@
-name: Private stable signed update
+name: Public stable signed Setup
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing stable tag, for example v1.4.0'
+        description: 'Existing stable tag, for example v1.5.0'
         required: true
         type: string
 permissions:
@@ -64,23 +64,27 @@ jobs:
         run: |
           if(!$env:NETPILOT_SIGNING_KEY_B64){throw 'Trusted signing secret is not configured; publication blocked'}
           ./scripts/validate-version.ps1 -Tag $env:RELEASE_TAG
-          python ./scripts/package-update.py --key ENV --tag $env:RELEASE_TAG
+          python ./scripts/package-public.py --key ENV --tag $env:RELEASE_TAG --output dist/public
           if($LASTEXITCODE){throw 'Signing failed'}
-          & ./bin/Release/NetPilotLite.Tests.exe --package-test dist/update
+          & ./bin/Release/NetPilotLite.Tests.exe --public-package-test dist/public
           if($LASTEXITCODE){throw 'Signed package verification failed'}
           & ./tests/build_update_tests.cmd ENV
           if($LASTEXITCODE){throw 'Signed mock fixtures failed'}
-          python ./tests/private-download-fixture.py ENV
-          if($LASTEXITCODE){throw 'Private download fixture failed'}
-          & ./bin/Release/NetPilotLite.Tests.exe --private-download-test artifacts/private-download-fixture
-          if($LASTEXITCODE){throw 'Private download protocol tests failed'}
+          New-Item -ItemType Directory -Force artifacts/public-setup | Out-Null
+          python ./tests/public-fixture.py ENV
+          if($LASTEXITCODE){throw 'Public download fixture failed'}
+          $fixture=Get-Content -Raw artifacts/public-setup/fixture-path.txt
+          & ./bin/Release/NetPilotLite.Tests.exe --public-download-test (Join-Path $fixture 'assets')
+          if($LASTEXITCODE){throw 'Public download protocol tests failed'}
+          & ./bin/Release/SetupTests.exe $fixture
+          if($LASTEXITCODE){throw 'Windows setup transaction tests failed'}
           & ./bin/Release/UpdateTests.exe artifacts/update-fixtures
           if($LASTEXITCODE){throw 'Replacement/rollback tests failed'}
       - uses: actions/upload-artifact@v4
         with:
           name: signed-stable-update
           if-no-files-found: error
-          path: dist/update/*
+          path: dist/public/*
       - uses: actions/upload-artifact@v4
         with:
           name: pinned-verifier

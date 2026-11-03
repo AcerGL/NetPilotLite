@@ -47,6 +47,9 @@
     <ClCompile Include="src\online.c" />
     <ClCompile Include="src\private_auth.c" />
     <ClCompile Include="src\private_update.c" />
+    <ClCompile Include="src\public_setup.c" />
+    <ClCompile Include="src\install_manifest.c" />
+    <ClCompile Include="src\setup_launch.c" />
     <ClCompile Include="src\json.c" />
     <ClCompile Include="src\trust.c" />
     <ClCompile Include="src\update_launch.c" />
@@ -56,6 +59,7 @@
     <ClInclude Include="src\apps.h" />
     <ClInclude Include="src\online.h" />
     <ClInclude Include="src\private_update.h" />
+    <ClInclude Include="src\public_setup.h" />
     <ClInclude Include="src\repository.h" />
     <ClInclude Include="src\ui_update_prompt.inc" />
     <ClInclude Include="tests\private_tests.inc" />
