@@ -1,0 +1,63 @@
+name: Publish verified prepared release
+on:
+  push:
+    branches: [main]
+    paths: ['.release/prepared-v1.5.0.json']
+permissions:
+  contents: read
+concurrency:
+  group: prepared-public-v1.5.0
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build pinned verifier and run read-only tests
+        shell: cmd
+        run: build.cmd
+      - name: Fetch prepared signed assets, verify, and publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $catalog=Get-Content -Raw .release/prepared-v1.5.0.json | ConvertFrom-Json
+          if($catalog.version -cne '1.5.0' -or $catalog.source_commit -cnotmatch '^[a-f0-9]{40}$'){throw 'Invalid prepared release'}
+          ./scripts/validate-version.ps1 -Tag v1.5.0
+          $differences=git diff $catalog.source_commit HEAD -- src installer tests assets vendor *.vcxproj *.props build.cmd
+          if($LASTEXITCODE -or $differences){throw 'Product differs from the tested source commit'}
+          New-Item -ItemType Directory release | Out-Null
+          $expected=@('manifest.json','manifest.json.update','NetPilotLite-Setup-x64.exe','NetPilotLite-Setup-x64.exe.update','NetPilotLite.exe','NetPilotLite.exe.update','SHA256SUMS.txt')
+          if($catalog.files.Count -ne $expected.Count){throw 'Wrong asset count'}
+          $seen=@{}
+          foreach($f in $catalog.files){
+            if($expected -cnotcontains $f.name -or $seen.ContainsKey($f.name) -or $f.blob -cnotmatch '^[a-f0-9]{40}$' -or $f.sha256 -cnotmatch '^[a-f0-9]{64}$' -or $f.size -le 0 -or $f.size -gt 67108864){throw 'Invalid prepared asset'}
+            $encoded=gh api "repos/$env:GH_REPO/git/blobs/$($f.blob)" --jq .content
+            if($LASTEXITCODE){throw 'Prepared blob unavailable'}
+            $bytes=[Convert]::FromBase64String(($encoded -join ''))
+            if($bytes.Length -ne $f.size){throw 'Size mismatch'}
+            $path=Join-Path release $f.name
+            [IO.File]::WriteAllBytes((Join-Path (Get-Location).Path $path),$bytes)
+            if((Get-FileHash -LiteralPath $path).Hash -ine $f.sha256){throw 'SHA-256 mismatch'}
+            $seen[$f.name]=$true
+          }
+          & ./bin/Release/NetPilotLite.Tests.exe --public-package-test release
+          if($LASTEXITCODE){throw 'Pinned publisher signature verification failed'}
+          & gh api "repos/$env:GH_REPO/git/refs" --method POST -f ref=refs/tags/v1.5.0 -f "sha=$($catalog.source_commit)"
+          if($LASTEXITCODE){throw 'Tag already exists or could not be created; inspect before retrying'}
+          ./scripts/publish-release.ps1 -Tag v1.5.0 -Directory release -VerifierPath bin/Release/NetPilotLite.Tests.exe -PublishApproved
+      - name: Preserve verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prepared-release-verification
+          path: release/SHA256SUMS.txt
+          if-no-files-found: ignore
+

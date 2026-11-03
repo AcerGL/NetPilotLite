@@ -1,0 +1,49 @@
+{
+  "version": "1.5.0",
+  "source_commit": "dfc30041e99b8bec5b7096a4988a89265ab2d4fd",
+  "files": [
+    {
+      "name": "manifest.json",
+      "size": 607,
+      "sha256": "175d7e5430328db03b689f7d8ac040c3821fdb53e1a199b14a91eb967f61cc9d",
+      "blob": "9aaae2c77e8a3e00a2d3a567e29c3a3407cf571f"
+    },
+    {
+      "name": "manifest.json.update",
+      "size": 128,
+      "sha256": "dfef720dfae4a7563b5ff481b1b457f2324ab2c4733c9b57cf54674b04b0ac68",
+      "blob": "b93eb2068dce580477a70e47ee352e77461cecd5"
+    },
+    {
+      "name": "NetPilotLite-Setup-x64.exe",
+      "size": 563200,
+      "sha256": "51e9b8cdb0fc69910e50d2c8614a376bf18d64ba2f8e2dd0ce3d156475b091ad",
+      "blob": "5ccb77f8f34af656120c7226b1959346057a6535"
+    },
+    {
+      "name": "NetPilotLite-Setup-x64.exe.update",
+      "size": 128,
+      "sha256": "6d3f23eebd4998822f89cd2a50a28511e254ea3547c92b1a2f2de2a36b34b878",
+      "blob": "d261597ddfa42ba4c0c6e777a08db32c4f0f3bd5"
+    },
+    {
+      "name": "NetPilotLite.exe",
+      "size": 1679872,
+      "sha256": "81fb73f4dc241e0b48a6b98301a4ae74c947a3e1b7b827c4d5efbfef5dc208f3",
+      "blob": "46ff31d5ae305f9f585bd306bcdb7fcf1eefcabc"
+    },
+    {
+      "name": "NetPilotLite.exe.update",
+      "size": 128,
+      "sha256": "35d26e6c9ed3c792672002900ff4a6e4a92237b65d5eeaa300a5d8cdf0d4127d",
+      "blob": "5c52162ef240c2155fded6c72b1a2c2baaf96f89"
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "size": 539,
+      "sha256": "ce8c5c9432d1645513e9b910bcc70ebb0a3467c611ecfe2e0cb70b973e1e8ab3",
+      "blob": "b8ffe51cca1444ca8511bc60ec14761d4765b2fa"
+    }
+  ]
+}
+
