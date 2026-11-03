@@ -66,6 +66,8 @@ powershell -File scripts/build-public.ps1 -SigningKey C:\Secure\private.dpapi -T
 
 `.github/workflows/release.yml` 在正式 `vMAJOR.MINOR.PATCH` 标签执行构建、测试、签名、真实 Windows 文件事务测试、草稿上传、下载回验，再转为稳定 Release。`release-signing` 环境需配置与固定公钥匹配的 `NETPILOT_SIGNING_KEY_B64`；密钥缺失或不匹配会失败关闭。使用受保护发布环境，限制谁能创建稳定标签和批准签名。
 
-当前本地签名正常；远端签名 Secret 未配置，不应将工作流文件存在等同于云端自动发布已验收。GitHub Actions 自身 artifact 传输格式由平台控制；项目不创建或上传 ZIP 格式的用户安装/更新 Release 资产。
+v1.5.0 已通过 publish-prepared.yml 使用本地已签名文件完成正式发布和下载回验。远端签名 Secret 仍未配置；后续标签全自动构建签名发布仍需配置，不应将一次已准备文件的发布等同于未来版本自动签名已经就绪。GitHub Actions 自身 artifact 传输格式由平台控制；项目不创建或上传 ZIP 格式的用户安装/更新 Release 资产。
 
 协议依据：[GitHub Release Assets API](https://docs.github.com/en/rest/releases/assets)。
+
+

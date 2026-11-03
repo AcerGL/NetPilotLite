@@ -1,7 +1,16 @@
 # 1.5.0 单 EXE 安装器验收报告
 
-日期：2026-11-03，Asia/Shanghai。结论：**本地原生构建、下载协议模拟和真实 Windows 文件安装事务通过；完整公开 GitHub 在线安装及自动更新闭环尚未完成验收。**
+日期：2026-11-03，Asia/Shanghai。结论：**本地构建、真实公开下载、正式 Setup 首次安装及生产 GUI 启动通过；生产客户端跨版本自动覆盖更新尚未完成验收。**
 
+## 公开发布与正式安装实测
+
+仓库已由用户改为 Public。[v1.5.0 正式 Release](https://github.com/AcerGL/NetPilotLite/releases/tag/v1.5.0) 已发布，7 个独立资产；[发布任务 41578769124](https://github.com/AcerGL/NetPilotLite/actions/runs/41578769124) 成功。任务从已准备的本地签名文件建立草稿，构建固定公钥验证器，验证文件和签名、上传并下载回验后才公开。没有上传私钥，没有用户 ZIP 安装包。
+
+实际 Windows WinHTTP 匿名获取 latest API，下载并验证 2 个运行文件和恢复 Setup 成功。正式下载的 Setup 已实际安装到 `%LOCALAPPDATA%\Programs\NetPilotLite`，生产 GUI 成功启动；再次只读核验主 EXE 1.5.0.0 的签名/SHA-256、开始菜单快捷方式及登录启动项均通过。与安装前快照比较，所有物理及虚拟适配器的 Status/AdminStatus 保持一致。
+
+原计划使用独立测试目录，实际界面已在默认目录开始并完成安装；报告按实际路径记录，不宣称该次安装位于临时目录。安装前已备份用户配置和集成项；用户明确选择保留安装直接使用，因此保留登录启动及快捷方式。只读比较原有 8 个用户数据文件，哈希全部未变。
+
+最初一次发布任务因浅克隆缺少被测试的源提交而失败，未公开草稿；增加完整历史获取后，新任务成功完成发布。此前 404 已被真实下载成功结果取代。
 ## 执行环境与边界
 
 实际 Windows x64 主机，VS 2022 C17 Release /MT。Setup 是原生 `NetPilotLite-Setup-x64.exe`，没有完整安装器或 ZIP 内嵌。运行文件为主 EXE 与可信签名旁文件，图片和 CRT 已包含。
@@ -33,8 +42,8 @@ Windows 真实 WinHTTP 匿名请求得到 HTTP 404 / Windows 1168，并明确提
 
 | 用户要求 | 结果与限制 |
 |---|---|
-| 1. 首次只下载一个 EXE | 产物满足；公开 Release 下载入口未发布，在线首次安装待验 |
-| 2. 独立获取所有文件 | 下载/验签/暂存真实文件逻辑通过模拟传输；真实公开 CDN 待验 |
+| 1. 首次只下载一个 EXE | 通过；正式 Setup 下载、安装并启动生产 GUI |
+| 2. 独立获取所有文件 | 通过；真实 WinHTTP / GitHub 公开资产下载及校验 |
 | 3. 无需处理 ZIP | 新安装/发布路径没有 ZIP，交付无 ZIP |
 | 4. 安装目录完整 | 实际 Windows 文件测试通过，包括嵌套资源 |
 | 5. 开机一次检查 | BootIdentifier 及持久化去重测试通过；未为本任务实际重启 Windows |
@@ -43,17 +52,15 @@ Windows 真实 WinHTTP 匿名请求得到 HTTP 404 / Windows 1168，并明确提
 | 8. 确认后自动下载 | 应用→已签名 Setup→清单文件路径已接通；真实端到端待验 |
 | 9. 自动覆盖原版本 | 实际 Windows 运行中替身升级通过，路径保持不变 |
 | 10. 配置与用户数据保留 | 安装外数据不在清单中；配置/绑定/背景/规则测试和用户文件保护通过 |
-| 11. 新版正常启动 | 新版替身实际启动并确认存活；生产 Setup 启动生产 GUI 待验 |
+| 11. 新版正常启动 | 通过；生产 Setup 安装后生产 GUI 已实际启动 |
 | 12. 网络中断恢复 | 模拟下载中断后重试成功；未主动断开真实网络 |
 | 13. 校验或签名失败阻止 | 真实签名样本被破坏后被拒绝，测试通过 |
 | 14. 升级失败回滚 | 实际 Windows 启动失败和两处中断恢复通过；没有真实断电 |
 
 ## 未完成条件
 
-- GitHub API 实测仓库仍是 Private，尚无本次公开稳定 Release。用户已授权文件就绪后改 Public，但浏览器控制工具因无法可靠确定当前网页 URL 停止；本次未执行可见性变更。
-- GitHub 连接可同步源码，未提供仓库可见性修改和 Release 二进制上传接口。不能把源码上传成功当作 Release 发布成功。
 - 云端 `NETPILOT_SIGNING_KEY_B64` 尚未配置；签名工作流应失败关闭。现有本地 DPAPI 发布密钥成功签名，密钥没有导出到交付目录。
-- 尚未执行真实 Program Files 安装、真实 UAC 取消、生产自动更新 UI 全链路、物理断网/断电测试。Clash/TUN 配置保持原样，未以模拟结果宣称其下的真实 GitHub 下载已通过。
+- 尚未执行真实 Program Files 安装、真实 UAC 取消、生产自动更新 UI 全链路、物理断网/断电测试。Clash/TUN 配置保持原样；实际当前 Windows 环境的匿名下载已经成功，但没有切换或重启 TUN 做故障测试。
 - 旧私有 ZIP 客户端迁移到本协议需首次运行新 Setup 一次；不能靠向旧客户端发布不同资产格式使其自动理解新协议。
 - 本版 Setup 不提供卸载器。旧 MSI/Inno 文件保留作历史参考，不作为本次发布资产。
 
@@ -64,3 +71,6 @@ Windows 真实 WinHTTP 匿名请求得到 HTTP 404 / Windows 1168，并明确提
 构建发布：VS 项目、资源版本、`scripts/package-public.py`、`build-public.ps1`、`build-release.ps1`、`build-update.ps1`、`publish-release.ps1`、`validate-version.ps1`、`.github/workflows/{build,release}.yml`。测试：`tests/public_setup_tests.inc`、`setup_tests.c`、`public-fixture.py` 及构建测试样本。
 
 本地原始证据在 `artifacts/public-setup`，交付目录提供可分享的结果报告；不会将设备详情、用户配置、Token 或发布私钥提交 GitHub。
+
+
+

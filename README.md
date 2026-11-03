@@ -7,9 +7,10 @@
 - [安装、更新、签名与构建](docs/PUBLIC_SETUP.md)
 - [验收结果及未验证限制](docs/PUBLIC_SETUP_TEST_REPORT.md)
 - Visual Studio Solution：`NetPilotLite.sln`，Release / x64。
+- [下载正式 Setup](https://github.com/AcerGL/NetPilotLite/releases/download/v1.5.0/NetPilotLite-Setup-x64.exe)
 - 本地发布文件：`dist/public`；用户只需下载其中的 Setup。
 
-**当前状态：Windows 本地文件安装/覆盖/回滚验证已执行；公开 GitHub Release 在线端到端验收尚未完成。仓库仍为 Private，尚未发布 1.5.0。**
+**当前状态：仓库 Public，v1.5.0 已正式发布；真实 Windows 匿名下载、正式 Setup 安装及生产 GUI 启动通过。生产跨版本自动更新及真实 UAC/断电测试仍待验。**
 
 以下章节为历史记录。其私有 Token、ZIP、Inno 及 Web Setup 分发说明不再适用于当前版本，以以上 1.5.0 文档为准。
 
@@ -110,4 +111,6 @@
 新增测试：`--feature-tests [签名的 2.0.0 故障样本 EXE]`、`--feature-ui`、`--apps-probe`、`--online-probe`。后两项只读真实环境；前两项使用模拟数据。GitHub Actions 工程目录根下的 `.github/workflows` 仅已准备，尚未运行。
 
 每次重复升级测试请运行 `tools\test-upgrade.ps1`：自动复制模拟样本到新的测试根目录，保留故障证据，避免复用残留的未来 schema 和中断事务目录。不要将正式用户 EXE 放入测试样本目录。
+
+
 
