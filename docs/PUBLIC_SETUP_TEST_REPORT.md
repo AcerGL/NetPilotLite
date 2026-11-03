@@ -10,6 +10,10 @@
 
 ## 已执行的结果
 
+源码提交 [`dfc3004`](https://github.com/AcerGL/NetPilotLite/commit/dfc30041e99b8bec5b7096a4988a89265ab2d4fd) 已同步到 `main`。[Windows 云端构建 41575582796](https://github.com/AcerGL/NetPilotLite/actions/runs/41575582796) 成功，实际完成核心 44、功能 75、开机/认证 46、路由 60 项检查。云端未签名，因此未运行 12 项需要签名样本的功能检查；这些已在本地执行。完整云端构建存在原有第三方 libyaml 警告；不能将本地增量无警告等同于整个仓库无警告。
+
+Windows 真实 WinHTTP 匿名请求得到 HTTP 404 / Windows 1168，并明确提示公开 Release 不可用，没有误报“已是最新版”。这只确认当前 API 请求和错误处理，不是下载成功或在线安装通过。
+
 | 测试 | 实际结果 |
 |---|---|
 | 最终 VS x64 构建 | 成功；核心模拟检查 44/44；此次增量构建未报告编译警告 |
